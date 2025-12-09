@@ -8,6 +8,7 @@ namespace eg4_modbus {
 static const char *const TAG = "eg4_modbus";
 
 static const uint8_t MODBUS_READ_HOLDING_REGISTERS = 0x03;
+static const uint8_t MODBUS_WRITE_SINGLE_REGISTER = 0x06;
 static const uint8_t MODBUS_WRITE_MULTIPLE_REGISTERS = 0x10;
 
 static const uint16_t EG4_MODBUS_RESPONSE_TIMEOUT = 1000;
@@ -89,6 +90,37 @@ void EG4Modbus::send(uint8_t address, uint8_t function, uint16_t start_register,
   ESP_LOGV(TAG, "Queued request for address 0x%02X, queue size: %d", address, this->request_queue_.size());
 }
 
+void EG4Modbus::send_write_single(uint8_t address, uint16_t register_address, uint16_t value) {
+  uint8_t frame[8];
+  frame[0] = address;
+  frame[1] = MODBUS_WRITE_SINGLE_REGISTER;  // Function 0x06
+  frame[2] = register_address >> 8;
+  frame[3] = register_address & 0xFF;
+  frame[4] = value >> 8;
+  frame[5] = value & 0xFF;
+
+  uint16_t crc = crc16_modbus(frame, 6);
+  frame[6] = crc & 0xFF;
+  frame[7] = crc >> 8;
+
+  if (this->flow_control_pin_ != nullptr) {
+    this->flow_control_pin_->digital_write(true);
+  }
+
+  this->write_array(frame, 8);
+  this->flush();
+
+  if (this->flow_control_pin_ != nullptr) {
+    this->flow_control_pin_->digital_write(false);
+  }
+
+  ESP_LOGI(TAG, "Write register 0x%04X = 0x%04X (%d)", register_address, value, value);
+  ESP_LOGV(TAG, "Sent: %s", format_hex_pretty(frame, 8).c_str());
+  
+  this->last_send_ = millis();
+  this->waiting_for_response_ = true;
+}
+
 void EG4Modbus::send_next_request_() {
   if (this->request_queue_.empty() || this->waiting_for_response_) {
     return;
@@ -155,6 +187,9 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
       uint8_t byte_count = raw[2];
       expected_len = 3 + byte_count + 2;  // addr + func + count + data + crc
     }
+  } else if (function == MODBUS_WRITE_SINGLE_REGISTER) {
+    // Write single register response echoes the request
+    expected_len = 8;  // addr + func + reg_addr(2) + value(2) + crc(2)
   } else if ((function & 0x80) != 0) {
     // Error response
     expected_len = 5;  // addr + func + error_code + crc

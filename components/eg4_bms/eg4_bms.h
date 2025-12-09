@@ -4,6 +4,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/number/number.h"
 #include "esphome/components/eg4_modbus/eg4_modbus.h"
 
 namespace esphome {
@@ -87,6 +88,170 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void set_firmware_version_text_sensor(text_sensor::TextSensor *firmware) { firmware_text_sensor_ = firmware; }
   void set_serial_number_text_sensor(text_sensor::TextSensor *serial) { serial_number_text_sensor_ = serial; }
 
+  // Number entities for writable configuration
+  void set_balance_starting_voltage_number(number::Number *balance_starting_voltage_number) {
+    balance_starting_voltage_number_ = balance_starting_voltage_number;
+  }
+  void set_balance_voltage_difference_number(number::Number *balance_voltage_difference_number) {
+    balance_voltage_difference_number_ = balance_voltage_difference_number;
+  }
+  void set_low_capacity_warning_number(number::Number *low_capacity_warning_number) {
+    low_capacity_warning_number_ = low_capacity_warning_number;
+  }
+  void set_cell_undervoltage_warning_number(number::Number *cell_undervoltage_warning_number) {
+    cell_undervoltage_warning_number_ = cell_undervoltage_warning_number;
+  }
+  void set_cell_undervoltage_protection_number(number::Number *cell_undervoltage_protection_number) {
+    cell_undervoltage_protection_number_ = cell_undervoltage_protection_number;
+  }
+  void set_cell_undervoltage_release_number(number::Number *cell_undervoltage_release_number) {
+    cell_undervoltage_release_number_ = cell_undervoltage_release_number;
+  }
+  void set_pack_undervoltage_warning_number(number::Number *pack_undervoltage_warning_number) {
+    pack_undervoltage_warning_number_ = pack_undervoltage_warning_number;
+  }
+  void set_pack_undervoltage_protection_number(number::Number *pack_undervoltage_protection_number) {
+    pack_undervoltage_protection_number_ = pack_undervoltage_protection_number;
+  }
+  void set_pack_undervoltage_release_number(number::Number *pack_undervoltage_release_number) {
+    pack_undervoltage_release_number_ = pack_undervoltage_release_number;
+  }
+  void set_cell_overvoltage_warning_number(number::Number *cell_overvoltage_warning_number) {
+    cell_overvoltage_warning_number_ = cell_overvoltage_warning_number;
+  }
+  void set_cell_overvoltage_protection_number(number::Number *cell_overvoltage_protection_number) {
+    cell_overvoltage_protection_number_ = cell_overvoltage_protection_number;
+  }
+  void set_cell_overvoltage_release_number(number::Number *cell_overvoltage_release_number) {
+    cell_overvoltage_release_number_ = cell_overvoltage_release_number;
+  }
+  void set_pack_overvoltage_warning_number(number::Number *pack_overvoltage_warning_number) {
+    pack_overvoltage_warning_number_ = pack_overvoltage_warning_number;
+  }
+  void set_pack_overvoltage_protection_number(number::Number *pack_overvoltage_protection_number) {
+    pack_overvoltage_protection_number_ = pack_overvoltage_protection_number;
+  }
+  void set_pack_overvoltage_release_number(number::Number *pack_overvoltage_release_number) {
+    pack_overvoltage_release_number_ = pack_overvoltage_release_number;
+  }
+  void set_charge_overcurrent1_protection_number(number::Number *charge_overcurrent1_protection_number) {
+    charge_overcurrent1_protection_number_ = charge_overcurrent1_protection_number;
+  }
+  void set_discharge_overcurrent1_protection_number(number::Number *discharge_overcurrent1_protection_number) {
+    discharge_overcurrent1_protection_number_ = discharge_overcurrent1_protection_number;
+  }
+  void set_charge_overcurrent1_delay_number(number::Number *charge_overcurrent1_delay_number) {
+    charge_overcurrent1_delay_number_ = charge_overcurrent1_delay_number;
+  }
+  void set_discharge_overcurrent1_delay_number(number::Number *discharge_overcurrent1_delay_number) {
+    discharge_overcurrent1_delay_number_ = discharge_overcurrent1_delay_number;
+  }
+  void set_charge_overcurrent2_protection_number(number::Number *charge_overcurrent2_protection_number) {
+    charge_overcurrent2_protection_number_ = charge_overcurrent2_protection_number;
+  }
+  void set_discharge_overcurrent2_protection_number(number::Number *discharge_overcurrent2_protection_number) {
+    discharge_overcurrent2_protection_number_ = discharge_overcurrent2_protection_number;
+  }
+  void set_charge_overcurrent2_delay_number(number::Number *charge_overcurrent2_delay_number) {
+    charge_overcurrent2_delay_number_ = charge_overcurrent2_delay_number;
+  }
+  void set_discharge_overcurrent2_delay_number(number::Number *discharge_overcurrent2_delay_number) {
+    discharge_overcurrent2_delay_number_ = discharge_overcurrent2_delay_number;
+  }
+  void set_short_circuit_protection_delay_number(number::Number *short_circuit_protection_delay_number) {
+    short_circuit_protection_delay_number_ = short_circuit_protection_delay_number;
+  }
+  void set_charge_undertemp_warning_number(number::Number *charge_undertemp_warning_number) {
+    charge_undertemp_warning_number_ = charge_undertemp_warning_number;
+  }
+  void set_charge_undertemp_protection_number(number::Number *charge_undertemp_protection_number) {
+    charge_undertemp_protection_number_ = charge_undertemp_protection_number;
+  }
+  void set_charge_undertemp_release_number(number::Number *charge_undertemp_release_number) {
+    charge_undertemp_release_number_ = charge_undertemp_release_number;
+  }
+  void set_charge_overtemp_warning_number(number::Number *charge_overtemp_warning_number) {
+    charge_overtemp_warning_number_ = charge_overtemp_warning_number;
+  }
+  void set_charge_overtemp_protection_number(number::Number *charge_overtemp_protection_number) {
+    charge_overtemp_protection_number_ = charge_overtemp_protection_number;
+  }
+  void set_charge_overtemp_release_number(number::Number *charge_overtemp_release_number) {
+    charge_overtemp_release_number_ = charge_overtemp_release_number;
+  }
+  void set_discharge_undertemp_warning_number(number::Number *discharge_undertemp_warning_number) {
+    discharge_undertemp_warning_number_ = discharge_undertemp_warning_number;
+  }
+  void set_discharge_undertemp_protection_number(number::Number *discharge_undertemp_protection_number) {
+    discharge_undertemp_protection_number_ = discharge_undertemp_protection_number;
+  }
+  void set_discharge_undertemp_release_number(number::Number *discharge_undertemp_release_number) {
+    discharge_undertemp_release_number_ = discharge_undertemp_release_number;
+  }
+  void set_discharge_overtemp_warning_number(number::Number *discharge_overtemp_warning_number) {
+    discharge_overtemp_warning_number_ = discharge_overtemp_warning_number;
+  }
+  void set_discharge_overtemp_protection_number(number::Number *discharge_overtemp_protection_number) {
+    discharge_overtemp_protection_number_ = discharge_overtemp_protection_number;
+  }
+  void set_discharge_overtemp_release_number(number::Number *discharge_overtemp_release_number) {
+    discharge_overtemp_release_number_ = discharge_overtemp_release_number;
+  }
+  void set_pcb_undertemp_warning_number(number::Number *pcb_undertemp_warning_number) {
+    pcb_undertemp_warning_number_ = pcb_undertemp_warning_number;
+  }
+  void set_pcb_undertemp_protection_number(number::Number *pcb_undertemp_protection_number) {
+    pcb_undertemp_protection_number_ = pcb_undertemp_protection_number;
+  }
+  void set_pcb_undertemp_release_number(number::Number *pcb_undertemp_release_number) {
+    pcb_undertemp_release_number_ = pcb_undertemp_release_number;
+  }
+  void set_pcb_overtemp_warning_number(number::Number *pcb_overtemp_warning_number) {
+    pcb_overtemp_warning_number_ = pcb_overtemp_warning_number;
+  }
+  void set_pcb_overtemp_protection_number(number::Number *pcb_overtemp_protection_number) {
+    pcb_overtemp_protection_number_ = pcb_overtemp_protection_number;
+  }
+  void set_pcb_overtemp_release_number(number::Number *pcb_overtemp_release_number) {
+    pcb_overtemp_release_number_ = pcb_overtemp_release_number;
+  }
+  void set_heating_start_temp_number(number::Number *heating_start_temp_number) {
+    heating_start_temp_number_ = heating_start_temp_number;
+  }
+  void set_heating_stop_temp_number(number::Number *heating_stop_temp_number) {
+    heating_stop_temp_number_ = heating_stop_temp_number;
+  }
+  void set_charge_heating_start_temp_number(number::Number *charge_heating_start_temp_number) {
+    charge_heating_start_temp_number_ = charge_heating_start_temp_number;
+  }
+  void set_charge_heating_stop_temp_number(number::Number *charge_heating_stop_temp_number) {
+    charge_heating_stop_temp_number_ = charge_heating_stop_temp_number;
+  }
+  void set_discharge_heating_start_temp_number(number::Number *discharge_heating_start_temp_number) {
+    discharge_heating_start_temp_number_ = discharge_heating_start_temp_number;
+  }
+  void set_discharge_heating_stop_temp_number(number::Number *discharge_heating_stop_temp_number) {
+    discharge_heating_stop_temp_number_ = discharge_heating_stop_temp_number;
+  }
+  void set_ambient_undertemp_warning_number(number::Number *ambient_undertemp_warning_number) {
+    ambient_undertemp_warning_number_ = ambient_undertemp_warning_number;
+  }
+  void set_ambient_undertemp_protection_number(number::Number *ambient_undertemp_protection_number) {
+    ambient_undertemp_protection_number_ = ambient_undertemp_protection_number;
+  }
+  void set_ambient_undertemp_release_number(number::Number *ambient_undertemp_release_number) {
+    ambient_undertemp_release_number_ = ambient_undertemp_release_number;
+  }
+  void set_ambient_overtemp_warning_number(number::Number *ambient_overtemp_warning_number) {
+    ambient_overtemp_warning_number_ = ambient_overtemp_warning_number;
+  }
+  void set_ambient_overtemp_protection_number(number::Number *ambient_overtemp_protection_number) {
+    ambient_overtemp_protection_number_ = ambient_overtemp_protection_number;
+  }
+  void set_ambient_overtemp_release_number(number::Number *ambient_overtemp_release_number) {
+    ambient_overtemp_release_number_ = ambient_overtemp_release_number;
+  }
+
   void on_modbus_data(const std::vector<uint8_t> &data) override;
 
   void dump_config() override;
@@ -143,6 +308,62 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   text_sensor::TextSensor *model_text_sensor_{nullptr};
   text_sensor::TextSensor *firmware_text_sensor_{nullptr};
   text_sensor::TextSensor *serial_number_text_sensor_{nullptr};
+
+  // Number entities for writable configuration
+  number::Number *balance_starting_voltage_number_{nullptr};
+  number::Number *balance_voltage_difference_number_{nullptr};
+  number::Number *low_capacity_warning_number_{nullptr};
+  number::Number *cell_undervoltage_warning_number_{nullptr};
+  number::Number *cell_undervoltage_protection_number_{nullptr};
+  number::Number *cell_undervoltage_release_number_{nullptr};
+  number::Number *pack_undervoltage_warning_number_{nullptr};
+  number::Number *pack_undervoltage_protection_number_{nullptr};
+  number::Number *pack_undervoltage_release_number_{nullptr};
+  number::Number *cell_overvoltage_warning_number_{nullptr};
+  number::Number *cell_overvoltage_protection_number_{nullptr};
+  number::Number *cell_overvoltage_release_number_{nullptr};
+  number::Number *pack_overvoltage_warning_number_{nullptr};
+  number::Number *pack_overvoltage_protection_number_{nullptr};
+  number::Number *pack_overvoltage_release_number_{nullptr};
+  number::Number *charge_overcurrent1_protection_number_{nullptr};
+  number::Number *discharge_overcurrent1_protection_number_{nullptr};
+  number::Number *charge_overcurrent1_delay_number_{nullptr};
+  number::Number *discharge_overcurrent1_delay_number_{nullptr};
+  number::Number *charge_overcurrent2_protection_number_{nullptr};
+  number::Number *discharge_overcurrent2_protection_number_{nullptr};
+  number::Number *charge_overcurrent2_delay_number_{nullptr};
+  number::Number *discharge_overcurrent2_delay_number_{nullptr};
+  number::Number *short_circuit_protection_delay_number_{nullptr};
+  number::Number *charge_undertemp_warning_number_{nullptr};
+  number::Number *charge_undertemp_protection_number_{nullptr};
+  number::Number *charge_undertemp_release_number_{nullptr};
+  number::Number *charge_overtemp_warning_number_{nullptr};
+  number::Number *charge_overtemp_protection_number_{nullptr};
+  number::Number *charge_overtemp_release_number_{nullptr};
+  number::Number *discharge_undertemp_warning_number_{nullptr};
+  number::Number *discharge_undertemp_protection_number_{nullptr};
+  number::Number *discharge_undertemp_release_number_{nullptr};
+  number::Number *discharge_overtemp_warning_number_{nullptr};
+  number::Number *discharge_overtemp_protection_number_{nullptr};
+  number::Number *discharge_overtemp_release_number_{nullptr};
+  number::Number *pcb_undertemp_warning_number_{nullptr};
+  number::Number *pcb_undertemp_protection_number_{nullptr};
+  number::Number *pcb_undertemp_release_number_{nullptr};
+  number::Number *pcb_overtemp_warning_number_{nullptr};
+  number::Number *pcb_overtemp_protection_number_{nullptr};
+  number::Number *pcb_overtemp_release_number_{nullptr};
+  number::Number *heating_start_temp_number_{nullptr};
+  number::Number *heating_stop_temp_number_{nullptr};
+  number::Number *charge_heating_start_temp_number_{nullptr};
+  number::Number *charge_heating_stop_temp_number_{nullptr};
+  number::Number *discharge_heating_start_temp_number_{nullptr};
+  number::Number *discharge_heating_stop_temp_number_{nullptr};
+  number::Number *ambient_undertemp_warning_number_{nullptr};
+  number::Number *ambient_undertemp_protection_number_{nullptr};
+  number::Number *ambient_undertemp_release_number_{nullptr};
+  number::Number *ambient_overtemp_warning_number_{nullptr};
+  number::Number *ambient_overtemp_protection_number_{nullptr};
+  number::Number *ambient_overtemp_release_number_{nullptr};
 
   struct Cell {
     sensor::Sensor *cell_voltage_sensor_{nullptr};

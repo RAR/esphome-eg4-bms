@@ -3,7 +3,7 @@ from esphome.components import eg4_modbus
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
-AUTO_LOAD = ["eg4_modbus", "binary_sensor", "sensor", "text_sensor"]
+AUTO_LOAD = ["eg4_modbus", "binary_sensor", "sensor", "text_sensor", "number"]
 CODEOWNERS = ["@rar"]
 MULTI_CONF = True
 

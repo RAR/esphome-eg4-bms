@@ -29,6 +29,7 @@ class EG4Modbus : public uart::UARTDevice, public Component {
   float get_setup_priority() const override;
 
   void send(uint8_t address, uint8_t function, uint16_t start_register, uint16_t num_registers);
+  void send_write_single(uint8_t address, uint16_t register_address, uint16_t value);
   void set_flow_control_pin(GPIOPin *flow_control_pin) { this->flow_control_pin_ = flow_control_pin; }
 
  protected:
@@ -55,6 +56,9 @@ class EG4ModbusDevice {
   virtual void on_modbus_data(const std::vector<uint8_t> &data) = 0;
   void send(uint8_t function, uint16_t start_register, uint16_t num_registers) {
     this->parent_->send(this->address_, function, start_register, num_registers);
+  }
+  void write_register(uint16_t register_address, uint16_t value) {
+    this->parent_->send_write_single(this->address_, register_address, value);
   }
 
  protected:
