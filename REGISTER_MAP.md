@@ -9,6 +9,8 @@ Currently implemented - see `eg4_bms.cpp` for details.
 
 Based on analysis of Modbus response from request starting at 0x002D (91 registers total).
 
+**IMPORTANT:** These configuration registers are **NOT accessible on the standard inverter communication port** (RJ45 pins 1 & 2). They appear to be only accessible on the parallel/battery-to-battery communication port (RJ45 pins 7 & 8). Attempts to read these registers on the inverter port return all zeros or no response.
+
 #### Real-Time Clock (RTC) / Timestamp
 
 Format: YYYY-MM-DD HH:MM:SS

@@ -7,11 +7,11 @@
 namespace esphome {
 namespace eg4_bms {
 
-class Eg4Bms;
+class EG4Bms;
 
 class Eg4Number : public number::Number, public Component {
  public:
-  void set_parent(Eg4Bms *parent) { this->parent_ = parent; };
+  void set_parent(EG4Bms *parent) { this->parent_ = parent; };
   void set_holding_register(uint16_t holding_register) { this->holding_register_ = holding_register; };
   void set_factor(float factor) { this->factor_ = factor; };
   void dump_config() override;
@@ -20,7 +20,7 @@ class Eg4Number : public number::Number, public Component {
 
  protected:
   void control(float value) override;
-  Eg4Bms *parent_;
+  EG4Bms *parent_;
   uint16_t holding_register_;
   float factor_{1.0};
 };

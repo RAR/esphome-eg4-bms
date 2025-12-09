@@ -4,6 +4,16 @@
 
 This implementation adds writable configuration parameters to the ESPHome EG4 BMS component, allowing you to modify BMS protection thresholds and settings via Home Assistant.
 
+## Important Hardware Note
+
+**Configuration registers (0x002D - 0x0087) are NOT accessible on the standard inverter communication port.**
+
+The EG4 Lifepower v2 battery uses an RJ45 connector with two separate RS485 buses:
+- **Pins 1 & 2**: Inverter communication bus (real-time data only: 0x0000-0x0026)
+- **Pins 7 & 8**: Parallel/battery communication bus (includes configuration registers: 0x002D-0x0087)
+
+To read or write configuration parameters, you must connect to **pins 7 & 8** of the RJ45 connector.
+
 ## Implementation Details
 
 ### Components Created

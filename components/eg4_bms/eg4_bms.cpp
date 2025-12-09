@@ -58,19 +58,27 @@ void EG4Bms::update() {
   this->track_online_status_();
   this->no_response_count_++;
 
-  // Always cycle through the two main register blocks
+  // Cycle through main register blocks and config registers
   switch (this->request_step_) {
     case 0:
       // Request main data block (voltage, current, cell voltages)
+      ESP_LOGV(TAG, "Requesting registers 0x%04X, count=%d", REG_VOLTAGE, 0x12);
       this->send(FUNCTION_READ_HOLDING, REG_VOLTAGE, 0x12);  // Read 18 registers (0x00-0x11)
       break;
     case 1:
       // Request temps, capacities, SOC, SOH, status, warnings, errors
+      ESP_LOGV(TAG, "Requesting registers 0x%04X, count=%d", REG_TEMP_PCB, 0x15);
       this->send(FUNCTION_READ_HOLDING, REG_TEMP_PCB, 0x15);  // Read 21 registers (0x12-0x26)
+      break;
+    case 2:
+      // Request configuration registers - use the known working read from REGISTER_MAP.md
+      // Start: 0x002D (RTC), Count: 0x5B (91 registers) includes all config through 0x0087
+      ESP_LOGD(TAG, "Requesting config block: registers 0x002D, count=91 (0x5B)");
+      this->send(FUNCTION_READ_HOLDING, 0x002D, 0x5B);  // Read 91 registers (0x002D-0x0087)
       break;
   }
 
-  this->request_step_ = (this->request_step_ + 1) % 2;
+  this->request_step_ = (this->request_step_ + 1) % 3;
 
   // Request text sensor data occasionally (every 30 updates)
   if ((this->update_counter_ % 30) == 0) {
@@ -111,7 +119,7 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
 
   // Check for error response
   if ((function & 0x80) != 0) {
-    ESP_LOGW(TAG, "Modbus error response: 0x%02X", data[2]);
+    ESP_LOGW(TAG, "Modbus error response: function=0x%02X, exception=0x%02X", function, data[2]);
     return;
   }
 
@@ -121,7 +129,7 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
   }
 
   uint8_t byte_count = data[2];
-  ESP_LOGD(TAG, "Received response: byte_count=%d, data.size()=%d", byte_count, data.size());
+  ESP_LOGD(TAG, "Received response: byte_count=0x%02X (%d bytes), data.size()=%d", byte_count, byte_count, data.size());
   
   if (data.size() < (size_t)(3 + byte_count + 2)) {
     ESP_LOGW(TAG, "Incomplete response");
@@ -145,6 +153,13 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
   };
 
   ESP_LOGV(TAG, "Processing %d bytes of data", byte_count);
+  
+  // Debug: Log first few bytes of payload for config blocks
+  if (byte_count == 0x50) {
+    ESP_LOGD(TAG, "Config block payload (first 20 bytes): %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+             payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9],
+             payload[10], payload[11], payload[12], payload[13], payload[14], payload[15], payload[16], payload[17], payload[18], payload[19]);
+  }
 
   // Determine which register block this is based on byte count
   if (byte_count == 0x24) {  // 36 bytes = 18 registers (voltage, current, cells)
@@ -286,6 +301,52 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     std::string serial((char *) payload, 16);
     serial.erase(serial.find_last_not_of(" \0") + 1);
     this->publish_state_(this->serial_number_text_sensor_, serial);
+  
+  } else if (byte_count == 0xB6) {  // 182 bytes = 91 registers (config block 0x002D-0x0087)
+    ESP_LOGD(TAG, "Config block received: 182 bytes from 0x002D");
+    ESP_LOGD(TAG, "Config block payload (first 20 bytes): %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+             payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9],
+             payload[10], payload[11], payload[12], payload[13], payload[14], payload[15], payload[16], payload[17], payload[18], payload[19]);
+    
+    // Calculate offsets from 0x002D base
+    // Register 0x0038 is at offset (0x0038 - 0x002D) * 2 = 11 * 2 = 22 bytes
+    // Register 0x0039 is at offset (0x0039 - 0x002D) * 2 = 12 * 2 = 24 bytes
+    // Register 0x003E is at offset (0x003E - 0x002D) * 2 = 17 * 2 = 34 bytes
+    // Register 0x0044 is at offset (0x0044 - 0x002D) * 2 = 23 * 2 = 46 bytes
+    // Register 0x005E is at offset (0x005E - 0x002D) * 2 = 49 * 2 = 98 bytes
+    // Register 0x0064 is at offset (0x0064 - 0x002D) * 2 = 55 * 2 = 110 bytes
+    
+    // Register 0x0038: Balance Voltage (mV)
+    uint16_t balance_voltage = get_16bit(22);
+    ESP_LOGD(TAG, "Balance voltage: raw=%d, %.3fV", balance_voltage, balance_voltage * 0.001f);
+    this->publish_state_(this->balance_starting_voltage_number_, balance_voltage * 0.001f);
+    
+    // Register 0x0039: Balance Diff (mV)
+    uint16_t balance_diff = get_16bit(24);
+    ESP_LOGD(TAG, "Balance diff: raw=%d, %.3fV", balance_diff, balance_diff * 0.001f);
+    this->publish_state_(this->balance_voltage_difference_number_, balance_diff * 0.001f);
+    
+    // Register 0x0044: Cell OV Protection (mV)
+    uint16_t cell_ov = get_16bit(46);
+    ESP_LOGD(TAG, "Cell OV protection: raw=%d, %.3fV", cell_ov, cell_ov * 0.001f);
+    this->publish_state_(this->cell_overvoltage_protection_number_, cell_ov * 0.001f);
+    
+    // Register 0x003E: Cell UV Protection (mV)
+    uint16_t cell_uv = get_16bit(34);
+    ESP_LOGD(TAG, "Cell UV protection: raw=%d, %.3fV", cell_uv, cell_uv * 0.001f);
+    this->publish_state_(this->cell_undervoltage_protection_number_, cell_uv * 0.001f);
+    
+    // Register 0x005E: Charge OT Protection (°C + 50 offset)
+    uint16_t charge_ot = get_16bit(98);
+    float charge_ot_temp = (float) charge_ot - 50.0f;
+    ESP_LOGD(TAG, "Charge OT protection: raw=%d, temp=%.1f°C", charge_ot, charge_ot_temp);
+    this->publish_state_(this->charge_overtemperature_protection_number_, charge_ot_temp);
+    
+    // Register 0x0064: Discharge OT Protection (°C + 50 offset)
+    uint16_t discharge_ot = get_16bit(110);
+    float discharge_ot_temp = (float) discharge_ot - 50.0f;
+    ESP_LOGD(TAG, "Discharge OT protection: raw=%d, temp=%.1f°C", discharge_ot, discharge_ot_temp);
+    this->publish_state_(this->discharge_overtemperature_protection_number_, discharge_ot_temp);
   }
 }
 
@@ -383,6 +444,12 @@ void EG4Bms::publish_state_(sensor::Sensor *sensor, float value) {
 void EG4Bms::publish_state_(text_sensor::TextSensor *text_sensor, const std::string &state) {
   if (text_sensor != nullptr && !state.empty()) {
     text_sensor->publish_state(state);
+  }
+}
+
+void EG4Bms::publish_state_(number::Number *number, float value) {
+  if (number != nullptr && !std::isnan(value)) {
+    number->publish_state(value);
   }
 }
 

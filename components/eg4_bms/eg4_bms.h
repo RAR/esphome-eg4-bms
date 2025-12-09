@@ -161,59 +161,59 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void set_short_circuit_protection_delay_number(number::Number *short_circuit_protection_delay_number) {
     short_circuit_protection_delay_number_ = short_circuit_protection_delay_number;
   }
-  void set_charge_undertemp_warning_number(number::Number *charge_undertemp_warning_number) {
-    charge_undertemp_warning_number_ = charge_undertemp_warning_number;
+  void set_charge_undertemperature_warning_number(number::Number *charge_undertemperature_warning_number) {
+    charge_undertemperature_warning_number_ = charge_undertemperature_warning_number;
   }
-  void set_charge_undertemp_protection_number(number::Number *charge_undertemp_protection_number) {
-    charge_undertemp_protection_number_ = charge_undertemp_protection_number;
+  void set_charge_undertemperature_protection_number(number::Number *charge_undertemperature_protection_number) {
+    charge_undertemperature_protection_number_ = charge_undertemperature_protection_number;
   }
-  void set_charge_undertemp_release_number(number::Number *charge_undertemp_release_number) {
-    charge_undertemp_release_number_ = charge_undertemp_release_number;
+  void set_charge_undertemperature_release_number(number::Number *charge_undertemperature_release_number) {
+    charge_undertemperature_release_number_ = charge_undertemperature_release_number;
   }
-  void set_charge_overtemp_warning_number(number::Number *charge_overtemp_warning_number) {
-    charge_overtemp_warning_number_ = charge_overtemp_warning_number;
+  void set_charge_overtemperature_warning_number(number::Number *charge_overtemperature_warning_number) {
+    charge_overtemperature_warning_number_ = charge_overtemperature_warning_number;
   }
-  void set_charge_overtemp_protection_number(number::Number *charge_overtemp_protection_number) {
-    charge_overtemp_protection_number_ = charge_overtemp_protection_number;
+  void set_charge_overtemperature_protection_number(number::Number *charge_overtemperature_protection_number) {
+    charge_overtemperature_protection_number_ = charge_overtemperature_protection_number;
   }
-  void set_charge_overtemp_release_number(number::Number *charge_overtemp_release_number) {
-    charge_overtemp_release_number_ = charge_overtemp_release_number;
+  void set_charge_overtemperature_release_number(number::Number *charge_overtemperature_release_number) {
+    charge_overtemperature_release_number_ = charge_overtemperature_release_number;
   }
-  void set_discharge_undertemp_warning_number(number::Number *discharge_undertemp_warning_number) {
-    discharge_undertemp_warning_number_ = discharge_undertemp_warning_number;
+  void set_discharge_undertemperature_warning_number(number::Number *discharge_undertemperature_warning_number) {
+    discharge_undertemperature_warning_number_ = discharge_undertemperature_warning_number;
   }
-  void set_discharge_undertemp_protection_number(number::Number *discharge_undertemp_protection_number) {
-    discharge_undertemp_protection_number_ = discharge_undertemp_protection_number;
+  void set_discharge_undertemperature_protection_number(number::Number *discharge_undertemperature_protection_number) {
+    discharge_undertemperature_protection_number_ = discharge_undertemperature_protection_number;
   }
-  void set_discharge_undertemp_release_number(number::Number *discharge_undertemp_release_number) {
-    discharge_undertemp_release_number_ = discharge_undertemp_release_number;
+  void set_discharge_undertemperature_release_number(number::Number *discharge_undertemperature_release_number) {
+    discharge_undertemperature_release_number_ = discharge_undertemperature_release_number;
   }
-  void set_discharge_overtemp_warning_number(number::Number *discharge_overtemp_warning_number) {
-    discharge_overtemp_warning_number_ = discharge_overtemp_warning_number;
+  void set_discharge_overtemperature_warning_number(number::Number *discharge_overtemperature_warning_number) {
+    discharge_overtemperature_warning_number_ = discharge_overtemperature_warning_number;
   }
-  void set_discharge_overtemp_protection_number(number::Number *discharge_overtemp_protection_number) {
-    discharge_overtemp_protection_number_ = discharge_overtemp_protection_number;
+  void set_discharge_overtemperature_protection_number(number::Number *discharge_overtemperature_protection_number) {
+    discharge_overtemperature_protection_number_ = discharge_overtemperature_protection_number;
   }
-  void set_discharge_overtemp_release_number(number::Number *discharge_overtemp_release_number) {
-    discharge_overtemp_release_number_ = discharge_overtemp_release_number;
+  void set_discharge_overtemperature_release_number(number::Number *discharge_overtemperature_release_number) {
+    discharge_overtemperature_release_number_ = discharge_overtemperature_release_number;
   }
-  void set_pcb_undertemp_warning_number(number::Number *pcb_undertemp_warning_number) {
-    pcb_undertemp_warning_number_ = pcb_undertemp_warning_number;
+  void set_pcb_undertemperature_warning_number(number::Number *pcb_undertemperature_warning_number) {
+    pcb_undertemperature_warning_number_ = pcb_undertemperature_warning_number;
   }
-  void set_pcb_undertemp_protection_number(number::Number *pcb_undertemp_protection_number) {
-    pcb_undertemp_protection_number_ = pcb_undertemp_protection_number;
+  void set_pcb_undertemperature_protection_number(number::Number *pcb_undertemperature_protection_number) {
+    pcb_undertemperature_protection_number_ = pcb_undertemperature_protection_number;
   }
-  void set_pcb_undertemp_release_number(number::Number *pcb_undertemp_release_number) {
-    pcb_undertemp_release_number_ = pcb_undertemp_release_number;
+  void set_pcb_undertemperature_release_number(number::Number *pcb_undertemperature_release_number) {
+    pcb_undertemperature_release_number_ = pcb_undertemperature_release_number;
   }
-  void set_pcb_overtemp_warning_number(number::Number *pcb_overtemp_warning_number) {
-    pcb_overtemp_warning_number_ = pcb_overtemp_warning_number;
+  void set_pcb_overtemperature_warning_number(number::Number *pcb_overtemperature_warning_number) {
+    pcb_overtemperature_warning_number_ = pcb_overtemperature_warning_number;
   }
-  void set_pcb_overtemp_protection_number(number::Number *pcb_overtemp_protection_number) {
-    pcb_overtemp_protection_number_ = pcb_overtemp_protection_number;
+  void set_pcb_overtemperature_protection_number(number::Number *pcb_overtemperature_protection_number) {
+    pcb_overtemperature_protection_number_ = pcb_overtemperature_protection_number;
   }
-  void set_pcb_overtemp_release_number(number::Number *pcb_overtemp_release_number) {
-    pcb_overtemp_release_number_ = pcb_overtemp_release_number;
+  void set_pcb_overtemperature_release_number(number::Number *pcb_overtemperature_release_number) {
+    pcb_overtemperature_release_number_ = pcb_overtemperature_release_number;
   }
   void set_heating_start_temp_number(number::Number *heating_start_temp_number) {
     heating_start_temp_number_ = heating_start_temp_number;
@@ -233,23 +233,23 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void set_discharge_heating_stop_temp_number(number::Number *discharge_heating_stop_temp_number) {
     discharge_heating_stop_temp_number_ = discharge_heating_stop_temp_number;
   }
-  void set_ambient_undertemp_warning_number(number::Number *ambient_undertemp_warning_number) {
-    ambient_undertemp_warning_number_ = ambient_undertemp_warning_number;
+  void set_ambient_undertemperature_warning_number(number::Number *ambient_undertemperature_warning_number) {
+    ambient_undertemperature_warning_number_ = ambient_undertemperature_warning_number;
   }
-  void set_ambient_undertemp_protection_number(number::Number *ambient_undertemp_protection_number) {
-    ambient_undertemp_protection_number_ = ambient_undertemp_protection_number;
+  void set_ambient_undertemperature_protection_number(number::Number *ambient_undertemperature_protection_number) {
+    ambient_undertemperature_protection_number_ = ambient_undertemperature_protection_number;
   }
-  void set_ambient_undertemp_release_number(number::Number *ambient_undertemp_release_number) {
-    ambient_undertemp_release_number_ = ambient_undertemp_release_number;
+  void set_ambient_undertemperature_release_number(number::Number *ambient_undertemperature_release_number) {
+    ambient_undertemperature_release_number_ = ambient_undertemperature_release_number;
   }
-  void set_ambient_overtemp_warning_number(number::Number *ambient_overtemp_warning_number) {
-    ambient_overtemp_warning_number_ = ambient_overtemp_warning_number;
+  void set_ambient_overtemperature_warning_number(number::Number *ambient_overtemperature_warning_number) {
+    ambient_overtemperature_warning_number_ = ambient_overtemperature_warning_number;
   }
-  void set_ambient_overtemp_protection_number(number::Number *ambient_overtemp_protection_number) {
-    ambient_overtemp_protection_number_ = ambient_overtemp_protection_number;
+  void set_ambient_overtemperature_protection_number(number::Number *ambient_overtemperature_protection_number) {
+    ambient_overtemperature_protection_number_ = ambient_overtemperature_protection_number;
   }
-  void set_ambient_overtemp_release_number(number::Number *ambient_overtemp_release_number) {
-    ambient_overtemp_release_number_ = ambient_overtemp_release_number;
+  void set_ambient_overtemperature_release_number(number::Number *ambient_overtemperature_release_number) {
+    ambient_overtemperature_release_number_ = ambient_overtemperature_release_number;
   }
 
   void on_modbus_data(const std::vector<uint8_t> &data) override;
@@ -257,6 +257,8 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void dump_config() override;
   void update() override;
   float get_setup_priority() const override;
+  
+  void write_register(uint16_t address, uint16_t value) { this->parent_->send_write_single(this->address_, address, value); }
 
  protected:
   // Binary sensors
@@ -334,36 +336,36 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   number::Number *charge_overcurrent2_delay_number_{nullptr};
   number::Number *discharge_overcurrent2_delay_number_{nullptr};
   number::Number *short_circuit_protection_delay_number_{nullptr};
-  number::Number *charge_undertemp_warning_number_{nullptr};
-  number::Number *charge_undertemp_protection_number_{nullptr};
-  number::Number *charge_undertemp_release_number_{nullptr};
-  number::Number *charge_overtemp_warning_number_{nullptr};
-  number::Number *charge_overtemp_protection_number_{nullptr};
-  number::Number *charge_overtemp_release_number_{nullptr};
-  number::Number *discharge_undertemp_warning_number_{nullptr};
-  number::Number *discharge_undertemp_protection_number_{nullptr};
-  number::Number *discharge_undertemp_release_number_{nullptr};
-  number::Number *discharge_overtemp_warning_number_{nullptr};
-  number::Number *discharge_overtemp_protection_number_{nullptr};
-  number::Number *discharge_overtemp_release_number_{nullptr};
-  number::Number *pcb_undertemp_warning_number_{nullptr};
-  number::Number *pcb_undertemp_protection_number_{nullptr};
-  number::Number *pcb_undertemp_release_number_{nullptr};
-  number::Number *pcb_overtemp_warning_number_{nullptr};
-  number::Number *pcb_overtemp_protection_number_{nullptr};
-  number::Number *pcb_overtemp_release_number_{nullptr};
+  number::Number *charge_undertemperature_warning_number_{nullptr};
+  number::Number *charge_undertemperature_protection_number_{nullptr};
+  number::Number *charge_undertemperature_release_number_{nullptr};
+  number::Number *charge_overtemperature_warning_number_{nullptr};
+  number::Number *charge_overtemperature_protection_number_{nullptr};
+  number::Number *charge_overtemperature_release_number_{nullptr};
+  number::Number *discharge_undertemperature_warning_number_{nullptr};
+  number::Number *discharge_undertemperature_protection_number_{nullptr};
+  number::Number *discharge_undertemperature_release_number_{nullptr};
+  number::Number *discharge_overtemperature_warning_number_{nullptr};
+  number::Number *discharge_overtemperature_protection_number_{nullptr};
+  number::Number *discharge_overtemperature_release_number_{nullptr};
+  number::Number *pcb_undertemperature_warning_number_{nullptr};
+  number::Number *pcb_undertemperature_protection_number_{nullptr};
+  number::Number *pcb_undertemperature_release_number_{nullptr};
+  number::Number *pcb_overtemperature_warning_number_{nullptr};
+  number::Number *pcb_overtemperature_protection_number_{nullptr};
+  number::Number *pcb_overtemperature_release_number_{nullptr};
   number::Number *heating_start_temp_number_{nullptr};
   number::Number *heating_stop_temp_number_{nullptr};
   number::Number *charge_heating_start_temp_number_{nullptr};
   number::Number *charge_heating_stop_temp_number_{nullptr};
   number::Number *discharge_heating_start_temp_number_{nullptr};
   number::Number *discharge_heating_stop_temp_number_{nullptr};
-  number::Number *ambient_undertemp_warning_number_{nullptr};
-  number::Number *ambient_undertemp_protection_number_{nullptr};
-  number::Number *ambient_undertemp_release_number_{nullptr};
-  number::Number *ambient_overtemp_warning_number_{nullptr};
-  number::Number *ambient_overtemp_protection_number_{nullptr};
-  number::Number *ambient_overtemp_release_number_{nullptr};
+  number::Number *ambient_undertemperature_warning_number_{nullptr};
+  number::Number *ambient_undertemperature_protection_number_{nullptr};
+  number::Number *ambient_undertemperature_release_number_{nullptr};
+  number::Number *ambient_overtemperature_warning_number_{nullptr};
+  number::Number *ambient_overtemperature_protection_number_{nullptr};
+  number::Number *ambient_overtemperature_release_number_{nullptr};
 
   struct Cell {
     sensor::Sensor *cell_voltage_sensor_{nullptr};
@@ -381,6 +383,7 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void publish_state_(binary_sensor::BinarySensor *binary_sensor, const bool &state);
   void publish_state_(sensor::Sensor *sensor, float value);
   void publish_state_(text_sensor::TextSensor *text_sensor, const std::string &state);
+  void publish_state_(number::Number *number, float value);
   
   void on_status_data_(const std::vector<uint8_t> &data);
   void on_info_data_(const std::vector<uint8_t> &data);
