@@ -119,13 +119,9 @@ Temperature values stored as single bytes in low byte of each register.
 - **0x0086 (134)**: Ambient OT Protection - 130 (130-50 = 80°C)
 - **0x0087 (135)**: Ambient OT Release - 110 (110-50 = 60°C)
 
-#### Other Temperature and Current Settings (To Be Mapped)
-- **0x005A-0x0065**: Various temperature thresholds (48, 45, 50, 115, 120, 110, 35, 30, 40, 120, 125, 115°C)
+#### Other Current Settings (To Be Mapped)
 - **0x0049 (73)**: 555 (55.5A or 5.55A?) - unknown
 - **0x004A (74)**: 500 (50.0A or 5.00A?) - unknown
-
-#### Additional Parameters (0x005A - 0x0068)
-Values ranging from 30-160, possibly temperature thresholds or other limits.
 
 #### Device Identification (Read-only)
 - **0x0069-0x0073** (105-115): Model Name (22 bytes ASCII) - "ZTR-16S200A-10KW-STD2"
