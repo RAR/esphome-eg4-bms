@@ -1,0 +1,104 @@
+substitutions:
+  name: eg4-bms-test
+  friendly_name: EG4 BMS Test
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+  logs:
+    modbus: DEBUG
+    eg4_modbus: DEBUG
+    eg4_bms: DEBUG
+
+# Enable Home Assistant API
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # Enable fallback hotspot
+  ap:
+    ssid: "${name} Fallback"
+
+captive_portal:
+
+# Use local components
+external_components:
+  - source:
+      type: local
+      path: components
+
+# M5Stack AtomS3 has UART on GPIO1 (TX) and GPIO2 (RX)
+uart:
+  - id: mod_bus
+    tx_pin: GPIO1
+    rx_pin: GPIO2
+    baud_rate: 9600
+    stop_bits: 1
+
+eg4_modbus:
+  - id: eg4modbus1
+    uart_id: mod_bus
+
+eg4_bms:
+  - id: bms1
+    address: 0x01
+    eg4_modbus_id: eg4modbus1
+    update_interval: 5s
+  - id: bms2
+   
+# Basic sensors to test config register reading
+sensor:
+  - platform: eg4_bms
+    eg4_bms_id: bms1
+    total_voltage:
+      name: "Total Voltage"
+    current:
+      name: "Current"
+    state_of_charge:
+      name: "State of Charge"
+    cell_voltage_1:
+      name: "Cell 1 Voltage"
+
+binary_sensor:
+  - platform: eg4_bms
+    eg4_bms_id: bms1
+    online_status:
+      name: "Online Status"
+
+text_sensor:
+  - platform: eg4_bms
+    eg4_bms_id: bms1
+    status:
+      name: "Status"
+
+# Number entities to test config register access
+number:
+  - platform: eg4_bms
+    eg4_bms_id: bms1
+    balance_starting_voltage:
+      name: "Balance Starting Voltage"
+    balance_voltage_difference:
+      name: "Balance Voltage Difference"
+    cell_overvoltage_protection:
+      name: "Cell OV Protection"
+    cell_undervoltage_protection:
+      name: "Cell UV Protection"
+    charge_overtemperature_protection:
+      name: "Charge Overtemp Protection"
+    discharge_overtemperature_protection:
+      name: "Discharge Overtemp Protection"

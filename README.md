@@ -1,5 +1,8 @@
 # ESPHome EG4 BMS Component
 
+> **⚠️ UNTESTED - ALPHA RELEASE**  
+> This component compiles successfully but has not yet been tested with actual EG4 hardware. Use at your own risk and please report any issues or test results!
+
 ESPHome component to monitor EG4 Battery Management Systems (EG4 BMS) via RS485/Modbus RTU.
 
 This is a native C++ implementation that communicates directly with the EG4 BMS using the Modbus RTU protocol, providing better stability and lower resource usage compared to using the built-in ESPHome Modbus controller.

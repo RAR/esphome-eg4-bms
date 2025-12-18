@@ -30,6 +30,8 @@ CONF_MIN_CELL_VOLTAGE = "min_cell_voltage"
 CONF_MAX_CELL_VOLTAGE = "max_cell_voltage"
 CONF_DELTA_CELL_VOLTAGE = "delta_cell_voltage"
 CONF_CELL_AVERAGE_VOLTAGE = "cell_average_voltage"
+CONF_MIN_VOLTAGE_CELL = "min_voltage_cell"
+CONF_MAX_VOLTAGE_CELL = "max_voltage_cell"
 CONF_CELL_VOLTAGE_1 = "cell_voltage_1"
 CONF_CELL_VOLTAGE_2 = "cell_voltage_2"
 CONF_CELL_VOLTAGE_3 = "cell_voltage_3"
@@ -108,6 +110,12 @@ CONFIG_SCHEMA = EG4_BMS_COMPONENT_SCHEMA.extend(
         cv.Optional(CONF_MAX_CELL_VOLTAGE): CELL_VOLTAGE_SCHEMA,
         cv.Optional(CONF_DELTA_CELL_VOLTAGE): CELL_VOLTAGE_SCHEMA,
         cv.Optional(CONF_CELL_AVERAGE_VOLTAGE): CELL_VOLTAGE_SCHEMA,
+        cv.Optional(CONF_MIN_VOLTAGE_CELL): sensor.sensor_schema(
+            accuracy_decimals=0,
+        ),
+        cv.Optional(CONF_MAX_VOLTAGE_CELL): sensor.sensor_schema(
+            accuracy_decimals=0,
+        ),
         cv.Optional(CONF_CELL_VOLTAGE_1): CELL_VOLTAGE_SCHEMA,
         cv.Optional(CONF_CELL_VOLTAGE_2): CELL_VOLTAGE_SCHEMA,
         cv.Optional(CONF_CELL_VOLTAGE_3): CELL_VOLTAGE_SCHEMA,
@@ -243,6 +251,14 @@ async def to_code(config):
     if CONF_CELL_AVERAGE_VOLTAGE in config:
         sens = await sensor.new_sensor(config[CONF_CELL_AVERAGE_VOLTAGE])
         cg.add(hub.set_cell_average_voltage_sensor(sens))
+    
+    if CONF_MIN_VOLTAGE_CELL in config:
+        sens = await sensor.new_sensor(config[CONF_MIN_VOLTAGE_CELL])
+        cg.add(hub.set_min_voltage_cell_sensor(sens))
+    
+    if CONF_MAX_VOLTAGE_CELL in config:
+        sens = await sensor.new_sensor(config[CONF_MAX_VOLTAGE_CELL])
+        cg.add(hub.set_max_voltage_cell_sensor(sens))
 
     # Cell voltages
     for i in range(1, 17):

@@ -71,14 +71,20 @@ void EG4Bms::update() {
       this->send(FUNCTION_READ_HOLDING, REG_TEMP_PCB, 0x15);  // Read 21 registers (0x12-0x26)
       break;
     case 2:
-      // Request configuration registers - use the known working read from REGISTER_MAP.md
-      // Start: 0x002D (RTC), Count: 0x5B (91 registers) includes all config through 0x0087
-      ESP_LOGD(TAG, "Requesting config block: registers 0x002D, count=91 (0x5B)");
-      this->send(FUNCTION_READ_HOLDING, 0x002D, 0x5B);  // Read 91 registers (0x002D-0x0087)
+      // Request first config block: 0x002D-0x0054 (40 registers = 80 bytes)
+      // Includes balance voltage, diff, cell OV/UV limits
+      ESP_LOGD(TAG, "Requesting config block 1: registers 0x002D, count=40 (0x28)");
+      this->send(FUNCTION_READ_HOLDING, 0x002D, 0x28);
+      break;
+    case 3:
+      // Request second config block: 0x0055-0x0087 (51 registers = 102 bytes)
+      // Includes temp limits, charge/discharge limits
+      ESP_LOGD(TAG, "Requesting config block 2: registers 0x0055, count=51 (0x33)");
+      this->send(FUNCTION_READ_HOLDING, 0x0055, 0x33);
       break;
   }
 
-  this->request_step_ = (this->request_step_ + 1) % 3;
+  this->request_step_ = (this->request_step_ + 1) % 4;
 
   // Request text sensor data occasionally (every 30 updates)
   if ((this->update_counter_ % 30) == 0) {
@@ -183,6 +189,8 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     float max_cell_voltage = 0.0f;
     float sum_cell_voltage = 0.0f;
     uint8_t valid_cells = 0;
+    uint8_t min_cell_number = 0;
+    uint8_t max_cell_number = 0;
 
     for (uint8_t i = 0; i < 16; i++) {
       uint16_t cell_mv = get_16bit(4 + i * 2);
@@ -190,8 +198,14 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
         float cell_voltage = cell_mv * 0.001f;
         this->publish_state_(this->cells_[i].cell_voltage_sensor_, cell_voltage);
         
-        if (cell_voltage < min_cell_voltage) min_cell_voltage = cell_voltage;
-        if (cell_voltage > max_cell_voltage) max_cell_voltage = cell_voltage;
+        if (cell_voltage < min_cell_voltage) {
+          min_cell_voltage = cell_voltage;
+          min_cell_number = i + 1;  // Cell numbers are 1-indexed
+        }
+        if (cell_voltage > max_cell_voltage) {
+          max_cell_voltage = cell_voltage;
+          max_cell_number = i + 1;  // Cell numbers are 1-indexed
+        }
         sum_cell_voltage += cell_voltage;
         valid_cells++;
       }
@@ -202,6 +216,8 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
       this->publish_state_(this->max_cell_voltage_sensor_, max_cell_voltage);
       this->publish_state_(this->delta_cell_voltage_sensor_, max_cell_voltage - min_cell_voltage);
       this->publish_state_(this->cell_average_voltage_sensor_, sum_cell_voltage / valid_cells);
+      this->publish_state_(this->min_voltage_cell_sensor_, (float) min_cell_number);
+      this->publish_state_(this->max_voltage_cell_sensor_, (float) max_cell_number);
     }
 
   } else if (byte_count == 0x2A) {  // 42 bytes = 21 registers (temps, SOC, SOH, status, etc.)

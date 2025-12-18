@@ -35,6 +35,12 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void set_cell_average_voltage_sensor(sensor::Sensor *cell_average_voltage) {
     cell_average_voltage_sensor_ = cell_average_voltage;
   }
+  void set_min_voltage_cell_sensor(sensor::Sensor *min_voltage_cell) {
+    min_voltage_cell_sensor_ = min_voltage_cell;
+  }
+  void set_max_voltage_cell_sensor(sensor::Sensor *max_voltage_cell) {
+    max_voltage_cell_sensor_ = max_voltage_cell;
+  }
 
   // Current and power sensors
   void set_current_sensor(sensor::Sensor *current) { current_sensor_ = current; }
@@ -273,6 +279,8 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   sensor::Sensor *max_cell_voltage_sensor_{nullptr};
   sensor::Sensor *delta_cell_voltage_sensor_{nullptr};
   sensor::Sensor *cell_average_voltage_sensor_{nullptr};
+  sensor::Sensor *min_voltage_cell_sensor_{nullptr};
+  sensor::Sensor *max_voltage_cell_sensor_{nullptr};
 
   // Current and power sensors
   sensor::Sensor *current_sensor_{nullptr};
