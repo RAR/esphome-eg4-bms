@@ -22,9 +22,11 @@ Connect your RS485 converter to the ESP:
 - RS485 GND → ESP GND
 
 Connect the RS485 converter to the EG4 BMS RJ45 port:
-- A+ (pin 5 of RJ45)
-- B- (pin 4 of RJ45)
-- GND (pin 3 of RJ45)
+- A (pin 2 or pin 7 of RJ45)
+- B (pin 1 or pin 8 of RJ45)
+- GND (pin 3 or pin 6 of RJ45)
+
+Note: the RS485 A/B pair is bridged across pins 1/8 and 2/7, so either end of the connector works. Do not use pins 4/5 — they are not RS485 on this port.
 
 ## Step 2: Create Your Configuration
 

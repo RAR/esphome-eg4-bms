@@ -43,16 +43,18 @@ This is a native C++ implementation that communicates directly with the EG4 BMS 
 
 ### EG4 BMS RJ45 Pinout
 
-| Pin | Signal | Wire Color (T-568B) |
-|-----|--------|---------------------|
-| 1   | -      | -                   |
-| 2   | -      | -                   |
-| 3   | GND    | Green/White         |
-| 4   | B-     | Blue                |
-| 5   | A+     | Blue/White          |
-| 6   | -      | -                   |
-| 7   | -      | -                   |
-| 8   | -      | -                   |
+| Pin | Signal     | Wire Color (T-568B) |
+|-----|------------|---------------------|
+| 1   | RS485 B    | Orange/White        |
+| 2   | RS485 A    | Orange              |
+| 3   | GND        | Green/White         |
+| 4   | -          | Blue                |
+| 5   | -          | Blue/White          |
+| 6   | GND        | Green               |
+| 7   | RS485 A    | Brown/White         |
+| 8   | RS485 B    | Brown               |
+
+The RS485 pair is bridged across pins 1/8 (B) and 2/7 (A), so either end of the connector works. CAN bus for inverter closed-loop is on a separate port — not on this connector.
 
 ## Installation
 
