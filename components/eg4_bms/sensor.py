@@ -7,6 +7,7 @@ from esphome.const import (
     CONF_POWER,
     CONF_TEMPERATURE,
     CONF_VOLTAGE,
+    DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_ENERGY,
     DEVICE_CLASS_POWER,
@@ -190,12 +191,14 @@ CONFIG_SCHEMA = EG4_BMS_COMPONENT_SCHEMA.extend(
         cv.Optional(CONF_STATE_OF_CHARGE): sensor.sensor_schema(
             unit_of_measurement=UNIT_PERCENT,
             accuracy_decimals=0,
+            device_class=DEVICE_CLASS_BATTERY,
             state_class=STATE_CLASS_MEASUREMENT,
             icon="mdi:battery-70",
         ),
         cv.Optional(CONF_STATE_OF_HEALTH): sensor.sensor_schema(
             unit_of_measurement=UNIT_PERCENT,
             accuracy_decimals=0,
+            device_class=DEVICE_CLASS_BATTERY,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
         cv.Optional(CONF_CYCLE_COUNT): sensor.sensor_schema(
