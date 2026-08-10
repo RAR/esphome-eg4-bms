@@ -40,7 +40,11 @@ def eg4_modbus_device_schema(default_address):
     schema = {
         cv.GenerateID(CONF_EG4_MODBUS_ID): cv.use_id(EG4Modbus),
     }
-    schema[cv.Optional("address", default=default_address)] = cv.hex_uint8_t
+    # 0x00 is the Modbus broadcast address and 0xF8-0xFF are reserved, so
+    # neither can ever address a single BMS.
+    schema[cv.Optional("address", default=default_address)] = cv.All(
+        cv.hex_uint8_t, cv.Range(min=0x01, max=0xF7)
+    )
     return cv.Schema(schema)
 
 

@@ -1,7 +1,6 @@
 import esphome.codegen as cg
 from esphome.components import binary_sensor
 import esphome.config_validation as cv
-from esphome.const import CONF_ID
 
 from . import EG4_BMS_COMPONENT_SCHEMA, CONF_EG4_BMS_ID
 

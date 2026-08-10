@@ -3,17 +3,15 @@ from esphome.components import sensor
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_CURRENT,
-    CONF_ID,
     CONF_POWER,
-    CONF_TEMPERATURE,
-    CONF_VOLTAGE,
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_CURRENT,
-    DEVICE_CLASS_ENERGY,
     DEVICE_CLASS_POWER,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_VOLTAGE,
+    ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
+    STATE_CLASS_TOTAL_INCREASING,
     UNIT_AMPERE,
     UNIT_CELSIUS,
     UNIT_PERCENT,
@@ -68,7 +66,6 @@ CONF_MAX_TEMPERATURE = "max_temperature"
 # Capacity sensors
 CONF_REMAINING_CAPACITY = "remaining_capacity"
 CONF_FULL_CAPACITY = "full_capacity"
-CONF_DESIGNED_CAPACITY = "designed_capacity"
 
 # State sensors
 CONF_STATE_OF_CHARGE = "state_of_charge"
@@ -81,6 +78,9 @@ CONF_CELL_COUNT = "cell_count"
 CONF_ERRORS_BITMASK = "errors_bitmask"
 CONF_WARNINGS_BITMASK = "warnings_bitmask"
 CONF_PROTECTION_BITMASK = "protection_bitmask"
+
+# Diagnostic sensors
+CONF_REJECTED_FRAME_COUNT = "rejected_frame_count"
 
 UNIT_AMPERE_HOURS = "Ah"
 
@@ -113,9 +113,11 @@ CONFIG_SCHEMA = EG4_BMS_COMPONENT_SCHEMA.extend(
         cv.Optional(CONF_CELL_AVERAGE_VOLTAGE): CELL_VOLTAGE_SCHEMA,
         cv.Optional(CONF_MIN_VOLTAGE_CELL): sensor.sensor_schema(
             accuracy_decimals=0,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
         cv.Optional(CONF_MAX_VOLTAGE_CELL): sensor.sensor_schema(
             accuracy_decimals=0,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
         cv.Optional(CONF_CELL_VOLTAGE_1): CELL_VOLTAGE_SCHEMA,
         cv.Optional(CONF_CELL_VOLTAGE_2): CELL_VOLTAGE_SCHEMA,
@@ -169,22 +171,16 @@ CONFIG_SCHEMA = EG4_BMS_COMPONENT_SCHEMA.extend(
         cv.Optional(CONF_AVG_TEMPERATURE): TEMPERATURE_SCHEMA,
         cv.Optional(CONF_MAX_TEMPERATURE): TEMPERATURE_SCHEMA,
         # Capacity sensors
+        # No device_class: Home Assistant's "energy" class only accepts Wh/kWh
+        # style units and rejects Ah, and there is no ampere-hour device class.
         cv.Optional(CONF_REMAINING_CAPACITY): sensor.sensor_schema(
             unit_of_measurement=UNIT_AMPERE_HOURS,
-            accuracy_decimals=2,
-            device_class=DEVICE_CLASS_ENERGY,
+            accuracy_decimals=1,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
         cv.Optional(CONF_FULL_CAPACITY): sensor.sensor_schema(
             unit_of_measurement=UNIT_AMPERE_HOURS,
-            accuracy_decimals=2,
-            device_class=DEVICE_CLASS_ENERGY,
-            state_class=STATE_CLASS_MEASUREMENT,
-        ),
-        cv.Optional(CONF_DESIGNED_CAPACITY): sensor.sensor_schema(
-            unit_of_measurement=UNIT_AMPERE_HOURS,
-            accuracy_decimals=2,
-            device_class=DEVICE_CLASS_ENERGY,
+            accuracy_decimals=1,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
         # State sensors
@@ -217,15 +213,25 @@ CONFIG_SCHEMA = EG4_BMS_COMPONENT_SCHEMA.extend(
         # Bitmask sensors
         cv.Optional(CONF_ERRORS_BITMASK): sensor.sensor_schema(
             accuracy_decimals=0,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             icon="mdi:alert-circle-outline",
         ),
         cv.Optional(CONF_WARNINGS_BITMASK): sensor.sensor_schema(
             accuracy_decimals=0,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             icon="mdi:alert-outline",
         ),
         cv.Optional(CONF_PROTECTION_BITMASK): sensor.sensor_schema(
             accuracy_decimals=0,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             icon="mdi:shield-alert-outline",
+        ),
+        # Diagnostic sensors
+        cv.Optional(CONF_REJECTED_FRAME_COUNT): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_TOTAL_INCREASING,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:alert-decagram-outline",
         ),
     }
 )
@@ -315,10 +321,6 @@ async def to_code(config):
         sens = await sensor.new_sensor(config[CONF_FULL_CAPACITY])
         cg.add(hub.set_full_capacity_sensor(sens))
     
-    if CONF_DESIGNED_CAPACITY in config:
-        sens = await sensor.new_sensor(config[CONF_DESIGNED_CAPACITY])
-        cg.add(hub.set_designed_capacity_sensor(sens))
-
     # State sensors
     if CONF_STATE_OF_CHARGE in config:
         sens = await sensor.new_sensor(config[CONF_STATE_OF_CHARGE])
@@ -352,3 +354,8 @@ async def to_code(config):
     if CONF_PROTECTION_BITMASK in config:
         sens = await sensor.new_sensor(config[CONF_PROTECTION_BITMASK])
         cg.add(hub.set_protection_bitmask_sensor(sens))
+
+    # Diagnostic sensors
+    if CONF_REJECTED_FRAME_COUNT in config:
+        sens = await sensor.new_sensor(config[CONF_REJECTED_FRAME_COUNT])
+        cg.add(hub.set_rejected_frame_count_sensor(sens))

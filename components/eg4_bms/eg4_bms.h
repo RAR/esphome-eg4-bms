@@ -62,9 +62,6 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
     remaining_capacity_sensor_ = remaining_capacity;
   }
   void set_full_capacity_sensor(sensor::Sensor *full_capacity) { full_capacity_sensor_ = full_capacity; }
-  void set_designed_capacity_sensor(sensor::Sensor *designed_capacity) {
-    designed_capacity_sensor_ = designed_capacity;
-  }
 
   // State sensors
   void set_state_of_charge_sensor(sensor::Sensor *soc) { state_of_charge_sensor_ = soc; }
@@ -74,6 +71,12 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
     max_charge_current_sensor_ = max_charge_current;
   }
   void set_cell_count_sensor(sensor::Sensor *cell_count) { cell_count_sensor_ = cell_count; }
+
+  // Diagnostics
+  void set_rejected_frame_count_sensor(sensor::Sensor *rejected_frame_count) {
+    rejected_frame_count_sensor_ = rejected_frame_count;
+  }
+  void set_max_no_response_count(uint8_t count) { max_no_response_count_ = count; }
 
   // Bitmask sensors
   void set_errors_bitmask_sensor(sensor::Sensor *errors_bitmask) { errors_bitmask_sensor_ = errors_bitmask; }
@@ -129,7 +132,6 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   // Capacity sensors
   sensor::Sensor *remaining_capacity_sensor_{nullptr};
   sensor::Sensor *full_capacity_sensor_{nullptr};
-  sensor::Sensor *designed_capacity_sensor_{nullptr};
 
   // State sensors
   sensor::Sensor *state_of_charge_sensor_{nullptr};
@@ -137,6 +139,9 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   sensor::Sensor *cycle_count_sensor_{nullptr};
   sensor::Sensor *max_charge_current_sensor_{nullptr};
   sensor::Sensor *cell_count_sensor_{nullptr};
+
+  // Diagnostics
+  sensor::Sensor *rejected_frame_count_sensor_{nullptr};
 
   // Bitmask sensors
   sensor::Sensor *errors_bitmask_sensor_{nullptr};
@@ -163,15 +168,20 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   uint8_t request_step_{0};
   uint8_t text_request_step_{0};
   uint8_t no_response_count_{0};
+  uint8_t max_no_response_count_{5};
   uint32_t update_counter_{0};
+  uint32_t rejected_frame_count_{0};
 
   void publish_state_(binary_sensor::BinarySensor *binary_sensor, const bool &state);
   void publish_state_(sensor::Sensor *sensor, float value);
   void publish_state_(text_sensor::TextSensor *text_sensor, const std::string &state);
   
-  void on_status_data_(const std::vector<uint8_t> &data);
-  void on_info_data_(const std::vector<uint8_t> &data);
-  
+  // Returns false when the block was rejected as implausible, in which case no
+  // state was published and the online tracker must not be reset.
+  bool on_status_data_(const std::vector<uint8_t> &data);
+
+  void reject_block_(const std::vector<uint8_t> &data, const char *reason);
+
   void reset_online_status_tracker_();
   void track_online_status_();
   void publish_device_unavailable_();

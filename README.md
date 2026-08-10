@@ -116,6 +116,7 @@ sensor:
 
 See the example configurations in this repository:
 - [esp32-example.yaml](esp32-example.yaml) - Full configuration for ESP32
+- [esp32s3-example.yaml](esp32s3-example.yaml) - Full configuration for ESP32-S3
 - [esp8266-example.yaml](esp8266-example.yaml) - Minimal configuration for ESP8266
 
 ## Configuration Variables
@@ -134,8 +135,32 @@ See the example configurations in this repository:
 |----------|------|---------|-------------|
 | `id` | **Required** | - | ID of the BMS component |
 | `eg4_modbus_id` | **Required** | - | ID of the parent Modbus component |
-| `address` | Optional | `0x10` | Modbus address of the BMS (0x01-0x10) |
+| `address` | Optional | `0x10` | Modbus address of the BMS (0x01-0xF7; EG4 uses 0x01-0x10) |
 | `update_interval` | Optional | `10s` | How often to poll the BMS |
+| `max_no_response_count` | Optional | `5` | Consecutive polls without a valid data block before the BMS is marked offline |
+
+### Implausible Response Rejection
+
+Some EG4 LL-V2 units intermittently return a complete, CRC-valid function-03
+response whose entire register data area is zero. Accepting those frames
+publishes false zeroes for SOC, pack voltage and capacity, which can knock a
+battery out of a downstream aggregate such as YamBMS.
+
+Each register block is therefore validated before anything is published, and
+rejected as a unit if it is implausible:
+
+- **Electrical/cell block** - rejected if the payload is entirely zero or the
+  pack voltage reads 0.00 V.
+- **Capacity/SOC block** - rejected if the payload is entirely zero or
+  remaining capacity, full capacity and SOH all read zero.
+
+A rejected block publishes nothing, so all previous values are retained, and it
+does not reset the online tracker. Legitimate zeroes are unaffected: `SOC = 0`
+on a discharged pack and `max_charge_current = 0` on a charge-limited pack are
+still accepted as long as the rest of the block is plausible.
+
+Expose the `rejected_frame_count` sensor to monitor how often this happens; the
+rejected frame is also logged as hex at `WARN` level.
 
 ### BMS Addressing
 
@@ -153,8 +178,13 @@ Use DIP switches on the BMS to configure the address.
 
 - `online_status` - BMS communication status
 - `heating` - Battery heating active
-- `charging` - Battery is charging
-- `discharging` - Battery is discharging
+- `charging` - Charging is permitted (no charge-blocking protection active)
+- `discharging` - Discharging is permitted (no discharge-blocking protection active)
+
+Note that `charging` and `discharging` report whether the BMS *permits* each
+direction, derived from the protection bits - not whether current is currently
+flowing. An idle battery reports both as ON. Use `current` or `status` to tell
+what the pack is actually doing.
 
 ### Sensors
 
@@ -163,7 +193,9 @@ Use DIP switches on the BMS to configure the address.
 - `min_cell_voltage` - Minimum cell voltage (V)
 - `max_cell_voltage` - Maximum cell voltage (V)
 - `delta_cell_voltage` - Voltage difference between min and max cells (V)
-- `average_cell_voltage` - Average cell voltage (V)
+- `min_voltage_cell` - Index (1-16) of the lowest cell
+- `max_voltage_cell` - Index (1-16) of the highest cell
+- `cell_average_voltage` - Average cell voltage (V)
 - `cell_voltage_1` to `cell_voltage_16` - Individual cell voltages (V)
 
 **Current and Power:**
@@ -181,14 +213,19 @@ Use DIP switches on the BMS to configure the address.
 **Capacity:**
 - `remaining_capacity` - Remaining capacity (Ah)
 - `full_capacity` - Full capacity (Ah)
-- `designed_capacity` - Designed capacity (Ah)
 
 **State:**
 - `state_of_charge` - State of charge (%)
 - `state_of_health` - State of health (%)
 - `cycle_count` - Charge/discharge cycles
 - `max_charge_current` - Maximum charging current (A)
-- `cell_count` - Number of cells in the pack
+- `cell_count` - Number of cells reporting a valid voltage
+
+**Diagnostic:**
+- `errors_bitmask` - Raw error register value
+- `warnings_bitmask` - Raw warning register value
+- `protection_bitmask` - Raw protection register value
+- `rejected_frame_count` - Count of implausible register blocks rejected since boot
 
 ### Text Sensors
 
@@ -225,7 +262,8 @@ Use DIP switches on the BMS to configure the address.
 - **Charge UT** - Charge under-temperature
 - **Discharge UT** - Discharge under-temperature
 - **Low Capacity** - Low capacity warning
-- **Discharge SC** - Discharge short circuit
+- **Float Stopped** - Float charging has stopped (warning only)
+- **Discharge SC** - Discharge short circuit (protection only)
 
 ### Error Codes
 
@@ -254,7 +292,7 @@ uart:
     direction: BOTH
     dummy_receiver: false
     after:
-      delimiter: "\r\n"
+      timeout: 50ms
     sequence:
       - lambda: UARTDebug::log_hex(direction, bytes, ':');
 ```
@@ -323,6 +361,30 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 - Original Modbus controller implementation from [esphome-yambms](https://github.com/Sleeper85/esphome-yambms)
 
 ## Changelog
+
+### Unreleased
+- Reject CRC-valid but all-zero register blocks instead of publishing false
+  zeroes, retaining the last good values ([#7](https://github.com/RAR/esphome-eg4-bms/issues/7))
+- Only reset the online tracker on a plausible data block
+- Add the `rejected_frame_count` diagnostic sensor
+- Make the missed-update threshold configurable via `max_no_response_count`
+- Fix `average_cell_voltage` in the ESP32 examples and docs; the schema key is
+  `cell_average_voltage`
+- Saturate the missed-update counter instead of letting it wrap, which flapped a
+  long-dead BMS back online every 256 polls
+- Drop `device_class: energy` from the Ah capacity sensors, which Home Assistant
+  rejects as a unit mismatch and excludes from long-term statistics
+- Publish `cell_count` (previously configurable but never populated)
+- Remove `designed_capacity`, which was never populated and has no known register
+- Text-sensor blocks no longer mark a BMS online; only a valid data block does,
+  so a unit returning zeroed measurements can no longer be kept online by its
+  model-string reply
+- Reject Modbus addresses outside 0x01-0xF7 and log an error at startup when two
+  devices on one bus share an address
+- Mark the bitmask and cell-index sensors as diagnostic entities
+- Correct the register map in PROJECT_SUMMARY.md, document the missing sensors,
+  clarify that `charging`/`discharging` mean "permitted" rather than "active",
+  and fix the UART debug snippet, which never triggered on binary Modbus frames
 
 ### v1.0.0 (2025-12-08)
 - Initial release

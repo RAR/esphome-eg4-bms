@@ -84,12 +84,15 @@ esphome-eg4-bms/
 ### Register Mapping (Based on EG4 Protocol)
 - 0x0000-0x0001: Voltage and Current
 - 0x0002-0x0011: Cell Voltages (16 cells)
-- 0x0018-0x001A: Temperatures
-- 0x001B-0x001E: Capacities and SOC/SOH
-- 0x001F-0x0022: Status, Warnings, Protection, Errors
-- 0x0023-0x0026: Cycle Count and Full Capacity
-- 0x0029-0x002B: Individual Temperature Sensors
-- 0x0105-0x0127: Device Info (Model, Firmware, Serial)
+- 0x0012-0x0014: Temperatures (PCB, average, max)
+- 0x0015-0x0018: Remaining Capacity, Max Charge Current, SOH, SOC
+- 0x0019-0x001C: Status, Warnings, Protection, Errors
+- 0x001D-0x001E: Cycle Count (32-bit)
+- 0x0021-0x0023: Individual Temperature Sensors (packed bytes)
+- 0x0025: Full Capacity
+- 0x0069 / 0x0075 / 0x0078: Model, Firmware, Serial
+
+See REGISTER_MAP.md for the configuration registers (0x002D-0x0087).
 
 ### Optimizations
 - **Batch register reads:** Multiple registers read in single Modbus request
