@@ -362,7 +362,14 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 ## Changelog
 
-### Unreleased
+### v1.1.0 (2026-08-10)
+
+**Breaking changes**
+- `designed_capacity` has been removed. It was configurable but never populated
+  and has no known register; remove it from your YAML.
+- `address` is now validated to 0x01-0xF7, rejecting the 0x00 broadcast address.
+
+**Changes**
 - Reject CRC-valid but all-zero register blocks instead of publishing false
   zeroes, retaining the last good values ([#7](https://github.com/RAR/esphome-eg4-bms/issues/7))
 - Only reset the online tracker on a plausible data block
@@ -385,6 +392,8 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 - Correct the register map in PROJECT_SUMMARY.md, document the missing sensors,
   clarify that `charging`/`discharging` mean "permitted" rather than "active",
   and fix the UART debug snippet, which never triggered on binary Modbus frames
+- Set device class battery for SoC and SoH sensors (#6)
+- Fix the BMS RJ45 pinout in the docs; RS485 is on pins 1/2 and 7/8, not 4/5 (#4)
 
 ### v1.0.0 (2025-12-08)
 - Initial release
