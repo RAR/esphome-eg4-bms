@@ -81,7 +81,7 @@ sensor:
       name: "${name} max cell voltage"
     delta_cell_voltage:
       name: "${name} delta cell voltage"
-    average_cell_voltage:
+    cell_average_voltage:
       name: "${name} average cell voltage"
     
     cell_voltage_1:
@@ -140,8 +140,6 @@ sensor:
       name: "${name} remaining capacity"
     full_capacity:
       name: "${name} full capacity"
-    designed_capacity:
-      name: "${name} designed capacity"
     
     # State
     state_of_charge:

@@ -8,7 +8,6 @@ namespace eg4_bms {
 static const char *const TAG = "eg4_bms";
 
 static const uint8_t FUNCTION_READ_HOLDING = 0x03;
-static const uint8_t MAX_NO_RESPONSE_COUNT = 5;
 
 // Register addresses (from working YamBMS modbus_controller implementation)
 static const uint16_t REG_VOLTAGE = 0x0000;          // Total voltage (10mV)
@@ -33,9 +32,22 @@ static const uint16_t REG_MODEL = 0x0069;            // Model (22 bytes)
 static const uint16_t REG_FW_VERSION = 0x0075;       // Firmware version (6 bytes)
 static const uint16_t REG_SERIAL_NO = 0x0078;        // Serial number (16 bytes)
 
+// Some EG4 LL-V2 units intermittently answer with a complete, CRC-valid
+// function-03 response whose entire register data area is zero (issue #7).
+// Publishing those zeroes produces transient SOC/voltage/capacity collapses
+// downstream, so a block is only accepted once it looks physically plausible.
+static bool is_all_zero(const uint8_t *payload, size_t length) {
+  for (size_t i = 0; i < length; i++) {
+    if (payload[i] != 0)
+      return false;
+  }
+  return true;
+}
+
 void EG4Bms::dump_config() {
   ESP_LOGCONFIG(TAG, "EG4 BMS:");
   ESP_LOGCONFIG(TAG, "  Address: 0x%02X", this->address_);
+  ESP_LOGCONFIG(TAG, "  Max no response count: %u", this->max_no_response_count_);
   LOG_BINARY_SENSOR("  ", "Online Status", this->online_status_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Heating", this->heating_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Charging", this->charging_binary_sensor_);
@@ -50,13 +62,21 @@ void EG4Bms::dump_config() {
 float EG4Bms::get_setup_priority() const { return setup_priority::DATA; }
 
 void EG4Bms::update() {
-  if (this->no_response_count_ >= MAX_NO_RESPONSE_COUNT) {
+  if (this->update_counter_ == 0) {
+    this->publish_state_(this->rejected_frame_count_sensor_, 0.0f);
+  }
+
+  if (this->no_response_count_ >= this->max_no_response_count_) {
     this->publish_device_unavailable_();
     ESP_LOGW(TAG, "No response from BMS (address 0x%02X)", this->address_);
   }
 
   this->track_online_status_();
-  this->no_response_count_++;
+  // Saturate rather than wrap - an 8-bit counter left to overflow would flap a
+  // long-dead BMS back to "online" every 256 polls.
+  if (this->no_response_count_ < 255) {
+    this->no_response_count_++;
+  }
 
   // Always cycle through the two main register blocks
   switch (this->request_step_) {
@@ -94,7 +114,7 @@ void EG4Bms::update() {
 
 void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
   if (data.size() < 5) {
-    ESP_LOGW(TAG, "Invalid Modbus response length: %d", data.size());
+    ESP_LOGW(TAG, "Invalid Modbus response length: %zu", data.size());
     return;
   }
 
@@ -106,12 +126,11 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
     return;  // Not for this device
   }
 
-  // Reset the no-response counter since we got a valid response for this address
-  this->reset_online_status_tracker_();
-
   // Check for error response
   if ((function & 0x80) != 0) {
     ESP_LOGW(TAG, "Modbus error response: 0x%02X", data[2]);
+    // The BMS did answer, it just refused the request - it is still online.
+    this->reset_online_status_tracker_();
     return;
   }
 
@@ -121,17 +140,21 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
   }
 
   uint8_t byte_count = data[2];
-  ESP_LOGD(TAG, "Received response: byte_count=%d, data.size()=%d", byte_count, data.size());
+  ESP_LOGD(TAG, "Received response: byte_count=%u, data.size()=%zu", byte_count, data.size());
   
   if (data.size() < (size_t)(3 + byte_count + 2)) {
     ESP_LOGW(TAG, "Incomplete response");
     return;
   }
 
-  this->on_status_data_(data);
+  // Only a block that survives plausibility validation counts as the BMS being
+  // online - an all-zero block must not refresh the tracker.
+  if (this->on_status_data_(data)) {
+    this->reset_online_status_tracker_();
+  }
 }
 
-void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
+bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
   const uint8_t *payload = &data[3];  // Skip address, function, byte count
   size_t byte_count = data[2];
 
@@ -144,10 +167,17 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
            (uint32_t(payload[i + 2]) << 8) | uint32_t(payload[i + 3]);
   };
 
-  ESP_LOGV(TAG, "Processing %d bytes of data", byte_count);
+  ESP_LOGV(TAG, "Processing %zu bytes of data", byte_count);
 
   // Determine which register block this is based on byte count
   if (byte_count == 0x24) {  // 36 bytes = 18 registers (voltage, current, cells)
+    // A live BMS never reports a 0.00 V pack; reject the whole block atomically
+    // so the last good electrical values are retained.
+    if (is_all_zero(payload, byte_count) || get_16bit(0) == 0) {
+      this->reject_block_(data, "electrical/cell block with zero pack voltage");
+      return false;
+    }
+
     // Total voltage (register 0x0000) - 10mV units
     float total_voltage = get_16bit(0) * 0.01f;
     this->publish_state_(this->total_voltage_sensor_, total_voltage);
@@ -191,6 +221,7 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     }
 
     if (valid_cells > 0) {
+      this->publish_state_(this->cell_count_sensor_, (float) valid_cells);
       this->publish_state_(this->min_cell_voltage_sensor_, min_cell_voltage);
       this->publish_state_(this->max_cell_voltage_sensor_, max_cell_voltage);
       this->publish_state_(this->delta_cell_voltage_sensor_, max_cell_voltage - min_cell_voltage);
@@ -200,6 +231,15 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     }
 
   } else if (byte_count == 0x2A) {  // 42 bytes = 21 registers (temps, SOC, SOH, status, etc.)
+    // SOC 0 and max charge current 0 are legitimate, but remaining capacity,
+    // full capacity and SOH cannot all read zero on a working pack. Reject the
+    // whole block atomically so the last good capacity values are retained.
+    if (is_all_zero(payload, byte_count) ||
+        (get_16bit(6) == 0 && get_16bit(10) == 0 && get_16bit(38) == 0)) {
+      this->reject_block_(data, "capacity/SOC block with zero capacity and SOH");
+      return false;
+    }
+
     // PCB/MOSFET temperature (register 0x0012) - °C, signed
     int16_t pcb_temp = (int16_t) get_16bit(0);
     this->publish_state_(this->pcb_temperature_sensor_, (float) pcb_temp);
@@ -268,7 +308,7 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
 
     // Temperature sensors 1-6 (registers 0x0021-0x0023) - packed as bytes
     // Each register contains 2 temperature values in its high and low bytes
-    if (byte_count >= 0x2A) {  // Make sure we have enough data
+    {
       this->publish_state_(this->temperatures_[0].temperature_sensor_, (float) (int8_t) payload[30]);  // Reg 0x0021 high byte
       this->publish_state_(this->temperatures_[1].temperature_sensor_, (float) (int8_t) payload[31]);  // Reg 0x0021 low byte
       this->publish_state_(this->temperatures_[2].temperature_sensor_, (float) (int8_t) payload[32]);  // Reg 0x0022 high byte
@@ -292,7 +332,23 @@ void EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
   } else if (byte_count == 0x10) {  // 16 bytes = 8 registers (serial number)
     std::string serial = this->extract_ascii_string_(payload, 16);
     this->publish_state_(this->serial_number_text_sensor_, serial);
+
+  } else {
+    ESP_LOGW(TAG, "BMS 0x%02X: unrecognised block of %u bytes", this->address_, (unsigned) byte_count);
+    return false;
   }
+
+  // Only the two data blocks prove the BMS is measuring correctly. The text
+  // blocks are served from static strings and keep answering even while a unit
+  // is returning zeroed measurements, so they must not mark it online.
+  return byte_count == 0x24 || byte_count == 0x2A;
+}
+
+void EG4Bms::reject_block_(const std::vector<uint8_t> &data, const char *reason) {
+  this->rejected_frame_count_++;
+  ESP_LOGW(TAG, "BMS 0x%02X: rejected %s (%u rejected so far): %s", this->address_, reason,
+           (unsigned) this->rejected_frame_count_, format_hex_pretty(data.data(), data.size()).c_str());
+  this->publish_state_(this->rejected_frame_count_sensor_, (float) this->rejected_frame_count_);
 }
 
 std::string EG4Bms::decode_status_(uint16_t status) {
@@ -422,7 +478,7 @@ void EG4Bms::reset_online_status_tracker_() {
 }
 
 void EG4Bms::track_online_status_() {
-  if (this->no_response_count_ < MAX_NO_RESPONSE_COUNT) {
+  if (this->no_response_count_ < this->max_no_response_count_) {
     this->publish_state_(this->online_status_binary_sensor_, true);
   }
 }

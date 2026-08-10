@@ -17,6 +17,18 @@ void EG4Modbus::setup() {
   if (this->flow_control_pin_ != nullptr) {
     this->flow_control_pin_->setup();
   }
+
+  // Two devices sharing an address both match every response for it and publish
+  // interleaved states, which is near impossible to diagnose from the sensor
+  // values alone. Configuration cannot catch this, so report it at startup.
+  for (size_t i = 0; i < this->devices_.size(); i++) {
+    for (size_t j = i + 1; j < this->devices_.size(); j++) {
+      if (this->devices_[i]->address_ == this->devices_[j]->address_) {
+        ESP_LOGE(TAG, "Duplicate device address 0x%02X on this bus - both devices will publish the same data",
+                 this->devices_[i]->address_);
+      }
+    }
+  }
 }
 
 void EG4Modbus::loop() {
