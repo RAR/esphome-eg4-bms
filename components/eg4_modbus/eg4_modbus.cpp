@@ -2,20 +2,30 @@
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 
+#include <algorithm>
+
 namespace esphome {
 namespace eg4_modbus {
 
 static const char *const TAG = "eg4_modbus";
 
-static const uint8_t MODBUS_READ_HOLDING_REGISTERS = 0x03;
-static const uint8_t MODBUS_WRITE_MULTIPLE_REGISTERS = 0x10;
-
 static const uint16_t EG4_MODBUS_RESPONSE_TIMEOUT = 1000;
 static const uint16_t EG4_MODBUS_MIN_MSG_LEN = 5;
+
+// Passive mode: once no byte has arrived for this long, a partial frame at the
+// head of the buffer can never complete and is abandoned so the splitter can
+// resync. This is NOT used to delimit frames - at 19200 baud it is ~38 byte
+// times, far longer than any intra-frame pause, and only triggers in the gap
+// between the master's polls (~45 ms of every 100 ms on the EG4 link).
+static const uint32_t PASSIVE_IDLE_FLUSH_MS = 20;
 
 void EG4Modbus::setup() {
   if (this->flow_control_pin_ != nullptr) {
     this->flow_control_pin_->setup();
+    if (this->is_passive()) {
+      // Hold an RS485 transceiver in receive for good.
+      this->flow_control_pin_->digital_write(false);
+    }
   }
 
   // Two devices sharing an address both match every response for it and publish
@@ -32,6 +42,11 @@ void EG4Modbus::setup() {
 }
 
 void EG4Modbus::loop() {
+  if (this->is_passive()) {
+    this->loop_passive_();
+    return;
+  }
+
   const uint32_t now = millis();
 
   // Read incoming bytes
@@ -46,7 +61,7 @@ void EG4Modbus::loop() {
   }
 
   // Check for timeout on current response
-  if (this->waiting_for_response_ && !this->rx_buffer_.empty() && 
+  if (this->waiting_for_response_ && !this->rx_buffer_.empty() &&
       (now - this->last_modbus_byte_ > EG4_MODBUS_RESPONSE_TIMEOUT)) {
     ESP_LOGW(TAG, "Modbus response timeout");
     this->rx_buffer_.clear();
@@ -54,7 +69,7 @@ void EG4Modbus::loop() {
   }
 
   // Check for complete timeout (no response at all)
-  if (this->waiting_for_response_ && this->rx_buffer_.empty() && 
+  if (this->waiting_for_response_ && this->rx_buffer_.empty() &&
       (now - this->last_send_ > EG4_MODBUS_RESPONSE_TIMEOUT)) {
     ESP_LOGW(TAG, "No response received");
     this->waiting_for_response_ = false;
@@ -66,38 +81,94 @@ void EG4Modbus::loop() {
   }
 }
 
+void EG4Modbus::loop_passive_() {
+  const uint32_t now = millis();
+
+  uint8_t chunk[64];
+  bool received = false;
+  while (this->available() > 0) {
+    const size_t n = std::min<size_t>(static_cast<size_t>(this->available()), sizeof(chunk));
+    if (!this->read_array(chunk, n))
+      break;
+    this->splitter_.push(chunk, n);
+    received = true;
+  }
+  if (received)
+    this->last_rx_ = now;
+
+  const bool idle = !received && this->splitter_.buffered() > 0 && (now - this->last_rx_) > PASSIVE_IDLE_FLUSH_MS;
+
+  Frame frame;
+  while (this->splitter_.next(frame, idle)) {
+    this->handle_passive_frame_(frame);
+  }
+
+  const uint32_t dropped = this->splitter_.dropped_bytes();
+  if (dropped != this->reported_dropped_) {
+    ESP_LOGD(TAG, "Resync: skipped %u byte(s) that did not form a valid frame (%u total)",
+             (unsigned) (dropped - this->reported_dropped_), (unsigned) dropped);
+    this->reported_dropped_ = dropped;
+  }
+}
+
+void EG4Modbus::handle_passive_frame_(const Frame &frame) {
+  ESP_LOGV(TAG, "Seen: %s", format_hex_pretty(frame.raw, frame.raw_len).c_str());
+
+  uint16_t start_register = MODBUS_START_REGISTER_UNKNOWN;
+  const bool paired = this->requests_.pair(frame, &start_register);
+
+  switch (frame.type) {
+    case FrameType::READ_REQUEST:
+    case FrameType::WRITE_REQUEST:
+    case FrameType::WRITE_RESPONSE:
+      // Requests only teach the tracker; writes are not decoded.
+      return;
+    case FrameType::READ_RESPONSE:
+      if (!paired) {
+        ESP_LOGV(TAG, "Response from 0x%02X (%u registers) without a matching request - skipped", frame.address,
+                 frame.quantity);
+        return;
+      }
+      break;
+    case FrameType::EXCEPTION:
+      break;
+  }
+
+  this->dispatch_(frame.address, frame.function, start_register, frame.payload, frame.payload_len);
+}
+
+void EG4Modbus::dispatch_(uint8_t address, uint8_t function, uint16_t start_register, const uint8_t *data,
+                          size_t len) {
+  for (auto *device : this->devices_) {
+    if (device->address_ == address) {
+      device->on_modbus_block(address, function, start_register, data, len);
+    }
+  }
+}
+
 void EG4Modbus::dump_config() {
   ESP_LOGCONFIG(TAG, "EG4 Modbus:");
+  ESP_LOGCONFIG(TAG, "  Mode: %s", this->is_passive() ? "passive (listen only, never transmits)" : "active");
   ESP_LOGCONFIG(TAG, "  Flow control pin: %s", YESNO(this->flow_control_pin_ != nullptr));
 }
 
 float EG4Modbus::get_setup_priority() const { return setup_priority::DATA; }
 
-uint16_t crc16_modbus(const uint8_t *data, uint16_t len) {
-  uint16_t crc = 0xFFFF;
-  for (uint16_t i = 0; i < len; i++) {
-    crc ^= data[i];
-    for (uint8_t j = 0; j < 8; j++) {
-      if (crc & 0x0001) {
-        crc = (crc >> 1) ^ 0xA001;
-      } else {
-        crc >>= 1;
-      }
-    }
-  }
-  return crc;
-}
-
 void EG4Modbus::send(uint8_t address, uint8_t function, uint16_t start_register, uint16_t num_registers) {
+  if (this->is_passive()) {
+    ESP_LOGV(TAG, "Passive mode - not sending request for address 0x%02X", address);
+    return;
+  }
+
   // Add request to queue instead of sending immediately
   ModbusRequest request;
   request.address = address;
   request.function = function;
   request.start_register = start_register;
   request.num_registers = num_registers;
-  
+
   this->request_queue_.push(request);
-  
+
   ESP_LOGV(TAG, "Queued request for address 0x%02X, queue size: %d", address, this->request_queue_.size());
 }
 
@@ -133,13 +204,12 @@ void EG4Modbus::send_next_request_() {
   }
 
   ESP_LOGV(TAG, "Sent: %s", format_hex_pretty(frame, 8).c_str());
+  this->requests_.on_request(request.address, request.function, request.start_register, request.num_registers);
   this->last_send_ = millis();
   this->waiting_for_response_ = true;
 }
 
 bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
-  const uint32_t now = millis();
-  
   // Start of new frame if buffer is empty or timeout occurred
   if (this->rx_buffer_.empty()) {
     this->rx_buffer_.push_back(byte);
@@ -161,13 +231,13 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
 
   // Calculate expected length based on function code
   size_t expected_len = 0;
-  
-  if (function == MODBUS_READ_HOLDING_REGISTERS) {
+
+  if (function == MODBUS_FC_READ_HOLDING_REGISTERS) {
     if (len >= 3) {
       uint8_t byte_count = raw[2];
       expected_len = 3 + byte_count + 2;  // addr + func + count + data + crc
     }
-  } else if ((function & 0x80) != 0) {
+  } else if ((function & MODBUS_EXCEPTION_FLAG) != 0) {
     // Error response
     expected_len = 5;  // addr + func + error_code + crc
   }
@@ -176,29 +246,37 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
     return true;  // Need more data
   }
 
-  if (len >= expected_len) {
-    // Verify CRC
-    uint16_t crc_calc = crc16_modbus(raw, expected_len - 2);
-    uint16_t crc_recv = raw[expected_len - 2] | (raw[expected_len - 1] << 8);
+  // Verify CRC
+  uint16_t crc_calc = crc16_modbus(raw, expected_len - 2);
+  uint16_t crc_recv = raw[expected_len - 2] | (raw[expected_len - 1] << 8);
 
-    if (crc_calc != crc_recv) {
-      ESP_LOGW(TAG, "Modbus CRC check failed! Calculated: 0x%04X, Received: 0x%04X", crc_calc, crc_recv);
-      this->rx_buffer_.clear();
-      return false;
-    }
-
-    ESP_LOGV(TAG, "Received: %s", format_hex_pretty(raw, expected_len).c_str());
-
-    // Dispatch to devices
-    for (auto *device : this->devices_) {
-      device->on_modbus_data(this->rx_buffer_);
-    }
-
+  if (crc_calc != crc_recv) {
+    ESP_LOGW(TAG, "Modbus CRC check failed! Calculated: 0x%04X, Received: 0x%04X", crc_calc, crc_recv);
     this->rx_buffer_.clear();
-    this->waiting_for_response_ = false;  // Ready for next request
-    return true;
+    return false;
   }
 
+  ESP_LOGV(TAG, "Received: %s", format_hex_pretty(raw, expected_len).c_str());
+
+  // This is a strict request/response queue, so the response answers the
+  // request last sent to its address - that request supplies the start register.
+  if ((function & MODBUS_EXCEPTION_FLAG) != 0) {
+    uint16_t start_register = MODBUS_START_REGISTER_UNKNOWN;
+    this->requests_.take(address, function, 0, &start_register);
+    this->dispatch_(address, function, start_register, raw + 2, 1);
+  } else {
+    const uint8_t byte_count = raw[2];
+    uint16_t start_register;
+    if (this->requests_.take(address, function, byte_count / 2, &start_register)) {
+      this->dispatch_(address, function, start_register, raw + 3, byte_count);
+    } else {
+      ESP_LOGW(TAG, "Response from 0x%02X (%u bytes) does not match the request sent - ignored", address,
+               byte_count);
+    }
+  }
+
+  this->rx_buffer_.clear();
+  this->waiting_for_response_ = false;  // Ready for next request
   return true;
 }
 

@@ -118,6 +118,103 @@ See the example configurations in this repository:
 - [esp32-example.yaml](esp32-example.yaml) - Full configuration for ESP32
 - [esp32s3-example.yaml](esp32s3-example.yaml) - Full configuration for ESP32-S3
 - [esp8266-example.yaml](esp8266-example.yaml) - Minimal configuration for ESP8266
+- [atoms3-link-passive-example.yaml](atoms3-link-passive-example.yaml) - Passive monitor of the pack-to-pack link (see below)
+- [waveshare-relay-link-master-example.yaml](waveshare-relay-link-master-example.yaml) - The ESP as master of the pack-to-pack link (see below)
+
+### Passive Link Mode
+
+Chained EG4-LL packs talk to each other over the paralleling (link) ports:
+the master pack (DIP ID 1) polls each slave with Modbus RTU at 19200 8N1,
+reading registers `0x00` x45 from IDs 2, 3, 4... round-robin, one poll every
+100 ms. With `mode: passive` the hub only listens to that conversation and
+decodes every slave's answers - it never writes to the UART, so it cannot
+collide with the master. The master's own data is not on the link.
+
+Wiring (RS485 transceiver such as the M5 RS485 unit; any free paralleling
+port, T-568B colours):
+
+| RJ45 pin | Signal |
+|----------|--------|
+| 1 (white/orange) | RS485 A |
+| 2 (orange) | RS485 B |
+| 8 (brown) | GND |
+
+```yaml
+uart:
+  id: uart_link
+  baud_rate: 19200
+  rx_pin: GPIO1
+  tx_pin: GPIO2   # unused in passive mode
+  rx_buffer_size: 512
+
+eg4_modbus:
+  id: link0
+  uart_id: uart_link
+  mode: passive
+
+eg4_bms:
+  - id: pack2
+    address: 2
+    eg4_modbus_id: link0
+```
+
+A receive-only RS232 level shifter (e.g. the M5 Atomic RS232 base) also works
+as a single-ended tap: base GND to pin 8, base RX to pin 1 or 2 (swap if
+nothing decodes), with `inverted: true` on the RX pin. Never connect its TX.
+
+How it works:
+- A slave answers 1-2 ms after the request, well inside one ESPHome loop, so
+  frames are split by structure and CRC rather than timing. Each response is
+  paired with the last request seen for its address to learn its start
+  register. Bytes that do not form a valid frame are skipped (logged at
+  `DEBUG` as "Resync").
+- Each pack is answered several times a second; `eg4_bms` keeps the newest
+  valid block and publishes once per `update_interval`.
+- `online_status` is ON while a valid block for that address has been seen
+  within `max_no_response_count` x `update_interval`.
+- The implausible-response rejection below applies unchanged.
+
+### Link Master Mode
+
+If nothing needs a pack master talking to an inverter (for example the
+inverter is fed by YamBMS or a CAN proxy instead), set every pack to its own
+slave ID (2, 3, 4, ...) so no pack is ID 1. The paralleling bus then has no
+master, every pack answers any Modbus master directly, and the ESP can poll
+them itself in normal `active` mode, getting full data from every pack
+including the one that used to be master.
+
+This needs an RS485 transceiver whose direction the ESP controls (DE/RE on a
+GPIO, set as `flow_control_pin`), such as the Waveshare ESP32-S3-Relay-1CH
+(TX GPIO17, RX GPIO18, RS485_EN GPIO21). Auto-direction transceivers that only
+drive one bit level, such as the M5 RS485 unit, receive fine but cannot send
+valid frames on this biased, terminated bus. Same wiring as above; leave any
+onboard 120 ohm terminator off.
+
+```yaml
+uart:
+  id: uart_link
+  baud_rate: 19200
+  rx_pin: GPIO18
+  tx_pin: GPIO17
+  rx_buffer_size: 512
+
+eg4_modbus:
+  id: link0
+  uart_id: uart_link
+  flow_control_pin: GPIO21
+
+eg4_bms:
+  - id: pack2
+    address: 2
+    eg4_modbus_id: link0
+```
+
+Notes from the bus:
+- A pack set to ID 1 boots silent for about 6 s, then scans `0x00` x45 at
+  addresses 0x02-0x40 three times (100 ms each, about 19 s) and afterwards
+  polls only the packs that answered.
+- While a pack is master it does not answer requests on the link, so with a
+  pack master present use passive mode instead.
 
 ## Configuration Variables
 
@@ -127,7 +224,8 @@ See the example configurations in this repository:
 |----------|------|---------|-------------|
 | `id` | **Required** | - | ID of the Modbus component |
 | `uart_id` | **Required** | - | ID of the UART component |
-| `flow_control_pin` | Optional | - | GPIO pin for RS485 flow control (DE/RE) |
+| `flow_control_pin` | Optional | - | GPIO pin for RS485 flow control (DE/RE); held low (receive) in passive mode |
+| `mode` | Optional | `active` | `active` polls the devices; `passive` only listens to another master (see [Passive Link Mode](#passive-link-mode)) |
 
 ### `eg4_bms`
 
@@ -136,8 +234,8 @@ See the example configurations in this repository:
 | `id` | **Required** | - | ID of the BMS component |
 | `eg4_modbus_id` | **Required** | - | ID of the parent Modbus component |
 | `address` | Optional | `0x10` | Modbus address of the BMS (0x01-0xF7; EG4 uses 0x01-0x10) |
-| `update_interval` | Optional | `10s` | How often to poll the BMS |
-| `max_no_response_count` | Optional | `5` | Consecutive polls without a valid data block before the BMS is marked offline |
+| `update_interval` | Optional | `10s` | How often to poll the BMS (passive mode: how often to publish) |
+| `max_no_response_count` | Optional | `5` | Consecutive polls without a valid data block before the BMS is marked offline (passive mode: offline after this many update intervals without a valid block) |
 
 ### Implausible Response Rejection
 
@@ -147,12 +245,16 @@ publishes false zeroes for SOC, pack voltage and capacity, which can knock a
 battery out of a downstream aggregate such as YamBMS.
 
 Each register block is therefore validated before anything is published, and
-rejected as a unit if it is implausible:
+rejected as a unit if it is implausible. The rules are applied by register, so
+they cover both the small blocks active mode reads and the link master's
+single `0x00` x45 block:
 
-- **Electrical/cell block** - rejected if the payload is entirely zero or the
-  pack voltage reads 0.00 V.
-- **Capacity/SOC block** - rejected if the payload is entirely zero or
-  remaining capacity, full capacity and SOH all read zero.
+- **Block containing pack voltage (0x00)** - rejected if the payload is
+  entirely zero or the pack voltage reads 0.00 V.
+- **Block containing remaining capacity and SOH (0x15, 0x17)** - rejected if
+  the payload is entirely zero or remaining capacity, SOH and (if included)
+  design capacity all read zero.
+- Any other block holding measurement registers is rejected if entirely zero.
 
 A rejected block publishes nothing, so all previous values are retained, and it
 does not reset the online tracker. Legitimate zeroes are unaffected: `SOC = 0`
@@ -212,14 +314,15 @@ what the pack is actually doing.
 
 **Capacity:**
 - `remaining_capacity` - Remaining capacity (Ah)
-- `full_capacity` - Full capacity (Ah)
+- `full_capacity` - Full charge capacity (Ah, registers 0x1F-0x20)
+- `designed_capacity` - Design capacity (Ah, register 0x25)
 
 **State:**
 - `state_of_charge` - State of charge (%)
 - `state_of_health` - State of health (%)
 - `cycle_count` - Charge/discharge cycles
 - `max_charge_current` - Maximum charging current (A)
-- `cell_count` - Number of cells reporting a valid voltage
+- `cell_count` - Cell count (register 0x24; until that has been read, the number of cells reporting a valid voltage)
 
 **Diagnostic:**
 - `errors_bitmask` - Raw error register value
@@ -246,6 +349,9 @@ what the pack is actually doing.
 - **Protect** - Protection is active
 - **Charging Limited** - Charging current is limited
 - **Heating+[Status]** - Battery heating is active
+
+The low byte of the status register is a bit field, so several states can be
+reported together, e.g. `Charging+Charging Limited`.
 
 ### Warnings and Protections
 
@@ -361,6 +467,28 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 - Original Modbus controller implementation from [esphome-yambms](https://github.com/Sleeper85/esphome-yambms)
 
 ## Changelog
+
+### Unreleased
+
+**Changes**
+- Add `mode: passive` to `eg4_modbus`: listen-only decoding of the EG4-LL
+  pack-to-pack link, with a structural/CRC frame splitter and the
+  `atoms3-link-passive-example.yaml` example
+- `eg4_bms` decodes blocks by register address instead of by byte count, so any
+  block layout (including the link master's `0x00` x45) is understood
+- Devices now receive `on_modbus_block(address, function, start_register,
+  data, len)` instead of `on_modbus_data(frame)`
+- Host-side splitter tests in `tests/` (`make -C tests`)
+
+**Register map corrections** (official EG4-LL protocol V01.06 + link capture)
+- `full_capacity` now reads the 32-bit full charge capacity at 0x1F-0x20
+  (mA·s, /3 600 000 = Ah). It previously read 0x25, which is the design
+  capacity; that is now published as `designed_capacity`.
+- `cell_count` uses register 0x24 when available.
+- `status` decodes the low byte as bits, so combined states are no longer
+  reported as `Unknown`.
+- Cycle count (32-bit at 0x1D-0x1E, high word first) and the six 1-byte
+  temperature sensors at 0x21-0x23 were confirmed correct.
 
 ### v1.1.0 (2026-08-10)
 

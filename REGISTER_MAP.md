@@ -3,7 +3,33 @@
 ## Known Register Blocks
 
 ### Real-time Data Registers (0x0000 - 0x0026)
-Currently implemented - see `eg4_bms.cpp` for details.
+
+From the official EG4-LL Modbus protocol V01.06 (`docs/`), confirmed against a
+capture of the link master's `0x00` x45 poll.
+
+| Register | Content | Unit / format |
+|----------|---------|---------------|
+| 0x0000 | Pack voltage | 10 mV |
+| 0x0001 | Current | 10 mA, signed, + = charge |
+| 0x0002-0x0011 | Cell 1-16 voltage | mV |
+| 0x0012 | PCB temperature | °C, signed |
+| 0x0013 | Average temperature | °C, signed |
+| 0x0014 | Max temperature | °C, signed |
+| 0x0015 | Remaining capacity | Ah |
+| 0x0016 | Max charge current | A |
+| 0x0017 | SOH | % |
+| 0x0018 | SOC | % |
+| 0x0019 | Status | low byte bits: 0x01 charging, 0x02 discharging, 0x04 protect, 0x08 charge limit; bit 15 heater on |
+| 0x001A | Warning bits | |
+| 0x001B | Protection bits | |
+| 0x001C | Error bits | |
+| 0x001D-0x001E | Cycle count | ULONG, high word first |
+| 0x001F-0x0020 | Full charge capacity | ULONG, mA·s (0x3C14DC00 = 280 Ah) |
+| 0x0021-0x0023 | Temperature sensors 1-6 | 1 byte each, signed °C, high byte first |
+| 0x0024 | Cell count | |
+| 0x0025 | Design capacity | 0.1 Ah |
+| 0x0026 | Cell balancing bitmap | bit n = cell n+1 (not exposed) |
+| 0x0027-0x002C | Unknown | read by the link master only; ignored |
 
 ### Configuration/Threshold Registers (0x002D - 0x0087)
 

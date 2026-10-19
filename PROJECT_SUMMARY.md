@@ -88,8 +88,10 @@ esphome-eg4-bms/
 - 0x0015-0x0018: Remaining Capacity, Max Charge Current, SOH, SOC
 - 0x0019-0x001C: Status, Warnings, Protection, Errors
 - 0x001D-0x001E: Cycle Count (32-bit)
+- 0x001F-0x0020: Full Charge Capacity (32-bit, mA·s)
 - 0x0021-0x0023: Individual Temperature Sensors (packed bytes)
-- 0x0025: Full Capacity
+- 0x0024: Cell Count
+- 0x0025: Design Capacity (0.1 Ah)
 - 0x0069 / 0x0075 / 0x0078: Model, Firmware, Serial
 
 See REGISTER_MAP.md for the configuration registers (0x002D-0x0087).

@@ -66,6 +66,7 @@ CONF_MAX_TEMPERATURE = "max_temperature"
 # Capacity sensors
 CONF_REMAINING_CAPACITY = "remaining_capacity"
 CONF_FULL_CAPACITY = "full_capacity"
+CONF_DESIGNED_CAPACITY = "designed_capacity"
 
 # State sensors
 CONF_STATE_OF_CHARGE = "state_of_charge"
@@ -182,6 +183,11 @@ CONFIG_SCHEMA = EG4_BMS_COMPONENT_SCHEMA.extend(
             unit_of_measurement=UNIT_AMPERE_HOURS,
             accuracy_decimals=1,
             state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_DESIGNED_CAPACITY): sensor.sensor_schema(
+            unit_of_measurement=UNIT_AMPERE_HOURS,
+            accuracy_decimals=1,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
         # State sensors
         cv.Optional(CONF_STATE_OF_CHARGE): sensor.sensor_schema(
@@ -320,6 +326,10 @@ async def to_code(config):
     if CONF_FULL_CAPACITY in config:
         sens = await sensor.new_sensor(config[CONF_FULL_CAPACITY])
         cg.add(hub.set_full_capacity_sensor(sens))
+
+    if CONF_DESIGNED_CAPACITY in config:
+        sens = await sensor.new_sensor(config[CONF_DESIGNED_CAPACITY])
+        cg.add(hub.set_designed_capacity_sensor(sens))
     
     # State sensors
     if CONF_STATE_OF_CHARGE in config:

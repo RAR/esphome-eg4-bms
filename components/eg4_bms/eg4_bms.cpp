@@ -9,10 +9,12 @@ static const char *const TAG = "eg4_bms";
 
 static const uint8_t FUNCTION_READ_HOLDING = 0x03;
 
-// Register addresses (from working YamBMS modbus_controller implementation)
+// Register addresses - official EG4-LL Modbus protocol V01.06 (docs/), checked
+// against a capture of the link-port master's 0x00 x45 poll.
 static const uint16_t REG_VOLTAGE = 0x0000;          // Total voltage (10mV)
-static const uint16_t REG_CURRENT = 0x0001;          // Current (10mA, signed)
-static const uint16_t REG_CELL_VOLTAGE = 0x0002;     // Cell voltages start (mV, 16 cells)
+static const uint16_t REG_CURRENT = 0x0001;          // Current (10mA, signed, + = charge)
+static const uint16_t REG_CELL_VOLTAGE = 0x0002;     // Cell voltages 0x02-0x11 (mV, 16 cells)
+static const uint16_t REG_CELL_VOLTAGE_LAST = 0x0011;
 static const uint16_t REG_TEMP_PCB = 0x0012;         // PCB/MOSFET temperature (°C, signed)
 static const uint16_t REG_TEMP_AVG = 0x0013;         // Average temperature (°C, signed)
 static const uint16_t REG_TEMP_MAX = 0x0014;         // Max temperature (°C, signed)
@@ -20,17 +22,24 @@ static const uint16_t REG_CAP_REMAINING = 0x0015;    // Remaining capacity (Ah)
 static const uint16_t REG_MAX_CHARGE_CURRENT = 0x0016;  // Max charging current (A)
 static const uint16_t REG_SOH = 0x0017;              // State of health (0-100%)
 static const uint16_t REG_SOC = 0x0018;              // State of charge (0-100%)
-static const uint16_t REG_STATUS = 0x0019;           // Status
+static const uint16_t REG_STATUS = 0x0019;           // Status (low byte bits, bit 15 = heater)
 static const uint16_t REG_WARNING = 0x001A;          // Warnings
 static const uint16_t REG_PROTECTION = 0x001B;       // Protection status
 static const uint16_t REG_ERROR = 0x001C;            // Error code
-static const uint16_t REG_CYCLE_COUNT = 0x001D;      // Cycle counts (4 bytes)
-static const uint16_t REG_TEMPS = 0x0021;            // Temperature sensors 1-6 (6 bytes, packed)
-static const uint16_t REG_BALANCING = 0x0026;        // Balancing status
-static const uint16_t REG_FULL_CAPACITY = 0x0025;    // Full capacity (0.1 Ah units)
+static const uint16_t REG_CYCLE_COUNT = 0x001D;      // Cycle count, ULONG 0x1D-0x1E (high word first)
+static const uint16_t REG_FULL_CAPACITY = 0x001F;    // Full capacity, ULONG 0x1F-0x20 (mA·s)
+static const uint16_t REG_TEMPS = 0x0021;            // Temperature sensors 1-6, 0x21-0x23 (1 byte each, signed)
+static const uint16_t REG_CELL_COUNT = 0x0024;       // Cell count
+static const uint16_t REG_DESIGN_CAPACITY = 0x0025;  // Design capacity (0.1 Ah)
+static const uint16_t REG_BALANCING = 0x0026;        // Cell balancing bitmap (not exposed)
+static const uint16_t REG_REALTIME_LAST = REG_BALANCING;
 static const uint16_t REG_MODEL = 0x0069;            // Model (22 bytes)
 static const uint16_t REG_FW_VERSION = 0x0075;       // Firmware version (6 bytes)
 static const uint16_t REG_SERIAL_NO = 0x0078;        // Serial number (16 bytes)
+
+static const uint16_t MODEL_REGISTERS = 11;
+static const uint16_t FW_VERSION_REGISTERS = 3;
+static const uint16_t SERIAL_NO_REGISTERS = 8;
 
 // Some EG4 LL-V2 units intermittently answer with a complete, CRC-valid
 // function-03 response whose entire register data area is zero (issue #7).
@@ -44,10 +53,19 @@ static bool is_all_zero(const uint8_t *payload, size_t length) {
   return true;
 }
 
+// True if [start, start + count) overlaps [first, last].
+static bool overlaps(uint16_t start, size_t count, uint16_t first, uint16_t last) {
+  return count > 0 && start <= last && (uint32_t) start + count > first;
+}
+
 void EG4Bms::dump_config() {
   ESP_LOGCONFIG(TAG, "EG4 BMS:");
   ESP_LOGCONFIG(TAG, "  Address: 0x%02X", this->address_);
   ESP_LOGCONFIG(TAG, "  Max no response count: %u", this->max_no_response_count_);
+  if (this->is_passive()) {
+    ESP_LOGCONFIG(TAG, "  Passive: offline after %u ms without a valid block on the bus",
+                  (unsigned) (this->max_no_response_count_ * this->get_update_interval()));
+  }
   LOG_BINARY_SENSOR("  ", "Online Status", this->online_status_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Heating", this->heating_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Charging", this->charging_binary_sensor_);
@@ -64,6 +82,12 @@ float EG4Bms::get_setup_priority() const { return setup_priority::DATA; }
 void EG4Bms::update() {
   if (this->update_counter_ == 0) {
     this->publish_state_(this->rejected_frame_count_sensor_, 0.0f);
+  }
+
+  if (this->is_passive()) {
+    this->update_passive_();
+    this->update_counter_++;
+    return;
   }
 
   if (this->no_response_count_ >= this->max_no_response_count_) {
@@ -93,17 +117,17 @@ void EG4Bms::update() {
   this->request_step_ = (this->request_step_ + 1) % 2;
 
   // Request text sensor data occasionally (every 30 updates)
-  if ((this->update_counter_ % 30) == 0) {
+  if (this->update_counter_ < 3 || (this->update_counter_ % 30) == 0) {
     // Cycle through text sensor requests
     switch (this->text_request_step_) {
       case 0:
-        this->send(FUNCTION_READ_HOLDING, REG_MODEL, 0x0B);  // Read 11 registers (22 bytes)
+        this->send(FUNCTION_READ_HOLDING, REG_MODEL, MODEL_REGISTERS);
         break;
       case 1:
-        this->send(FUNCTION_READ_HOLDING, REG_FW_VERSION, 0x03);  // Read 3 registers (6 bytes)
+        this->send(FUNCTION_READ_HOLDING, REG_FW_VERSION, FW_VERSION_REGISTERS);
         break;
       case 2:
-        this->send(FUNCTION_READ_HOLDING, REG_SERIAL_NO, 0x08);  // Read 8 registers (16 bytes)
+        this->send(FUNCTION_READ_HOLDING, REG_SERIAL_NO, SERIAL_NO_REGISTERS);
         break;
     }
     this->text_request_step_ = (this->text_request_step_ + 1) % 3;
@@ -112,15 +136,25 @@ void EG4Bms::update() {
   this->update_counter_++;
 }
 
-void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
-  if (data.size() < 5) {
-    ESP_LOGW(TAG, "Invalid Modbus response length: %zu", data.size());
-    return;
+// Passive mode sends nothing. The link master polls each pack several times a
+// second, so blocks are only stored as they arrive and published here, once per
+// update_interval. The BMS is online while a valid block has been seen within
+// max_no_response_count x update_interval.
+void EG4Bms::update_passive_() {
+  const uint64_t timeout_ms = (uint64_t) this->max_no_response_count_ * this->get_update_interval();
+  const bool online = this->seen_ && (uint64_t) (millis() - this->last_seen_ms_) <= timeout_ms;
+
+  if (online) {
+    this->publish_state_(this->online_status_binary_sensor_, true);
+    this->publish_pending_();
+  } else {
+    this->publish_device_unavailable_();
+    ESP_LOGW(TAG, "No traffic seen for BMS (address 0x%02X)", this->address_);
   }
+}
 
-  uint8_t address = data[0];
-  uint8_t function = data[1];
-
+void EG4Bms::on_modbus_block(uint8_t address, uint8_t function, uint16_t start_register, const uint8_t *data,
+                             size_t len) {
   // Check if this response is for this device
   if (address != this->address_) {
     return;  // Not for this device
@@ -128,9 +162,9 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
 
   // Check for error response
   if ((function & 0x80) != 0) {
-    ESP_LOGW(TAG, "Modbus error response: 0x%02X", data[2]);
+    ESP_LOGW(TAG, "Modbus error response: 0x%02X", len > 0 ? data[0] : 0);
     // The BMS did answer, it just refused the request - it is still online.
-    this->reset_online_status_tracker_();
+    this->on_device_answered_();
     return;
   }
 
@@ -139,61 +173,139 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
     return;
   }
 
-  uint8_t byte_count = data[2];
-  ESP_LOGD(TAG, "Received response: byte_count=%u, data.size()=%zu", byte_count, data.size());
-  
-  if (data.size() < (size_t)(3 + byte_count + 2)) {
-    ESP_LOGW(TAG, "Incomplete response");
+  if (start_register == eg4_modbus::MODBUS_START_REGISTER_UNKNOWN || len < 2 || (len % 2) != 0) {
+    ESP_LOGW(TAG, "BMS 0x%02X: block of %u bytes with unknown start register ignored", this->address_,
+             (unsigned) len);
     return;
   }
 
-  // Only a block that survives plausibility validation counts as the BMS being
-  // online - an all-zero block must not refresh the tracker.
-  if (this->on_status_data_(data)) {
+  const size_t count = len / 2;
+  ESP_LOGD(TAG, "Received block: start=0x%04X registers=%u", start_register, (unsigned) count);
+
+  if (!overlaps(start_register, count, REG_VOLTAGE, REG_REALTIME_LAST) &&
+      !overlaps(start_register, count, REG_MODEL, REG_MODEL + MODEL_REGISTERS - 1) &&
+      !overlaps(start_register, count, REG_FW_VERSION, REG_SERIAL_NO + SERIAL_NO_REGISTERS - 1)) {
+    ESP_LOGW(TAG, "BMS 0x%02X: unrecognised block 0x%04X x%u", this->address_, start_register, (unsigned) count);
+    return;
+  }
+
+  if (!this->validate_block_(start_register, data, len)) {
+    return;
+  }
+
+  this->store_block_(start_register, data, len);
+
+  if (!this->is_passive()) {
+    this->publish_pending_();
+  }
+
+  // Only the measurement registers prove the BMS is measuring correctly. The
+  // text blocks are served from static strings and keep answering even while a
+  // unit is returning zeroed measurements, so they must not mark it online.
+  if (overlaps(start_register, count, REG_VOLTAGE, REG_REALTIME_LAST)) {
+    this->on_device_answered_();
+  }
+}
+
+void EG4Bms::on_device_answered_() {
+  if (this->is_passive()) {
+    this->seen_ = true;
+    this->last_seen_ms_ = millis();
+    this->publish_state_(this->online_status_binary_sensor_, true);
+  } else {
     this->reset_online_status_tracker_();
   }
 }
 
-bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
-  const uint8_t *payload = &data[3];  // Skip address, function, byte count
-  size_t byte_count = data[2];
+bool EG4Bms::validate_block_(uint16_t start_register, const uint8_t *data, size_t len) {
+  const size_t count = len / 2;
+  if (!overlaps(start_register, count, REG_VOLTAGE, REG_REALTIME_LAST)) {
+    return true;  // Text blocks have no plausibility rule.
+  }
 
-  auto get_16bit = [&](size_t i) -> uint16_t {
-    return (uint16_t(payload[i]) << 8) | uint16_t(payload[i + 1]);
+  auto has = [&](uint16_t reg) -> bool { return reg >= start_register && reg < start_register + count; };
+  auto reg16 = [&](uint16_t reg) -> uint16_t {
+    const size_t i = (size_t) (reg - start_register) * 2;
+    return (uint16_t(data[i]) << 8) | uint16_t(data[i + 1]);
   };
+  const bool all_zero = is_all_zero(data, len);
 
-  auto get_32bit = [&](size_t i) -> uint32_t {
-    return (uint32_t(payload[i]) << 24) | (uint32_t(payload[i + 1]) << 16) | 
-           (uint32_t(payload[i + 2]) << 8) | uint32_t(payload[i + 3]);
-  };
+  // A live BMS never reports a 0.00 V pack; reject the whole block atomically
+  // so the last good values are retained.
+  if (has(REG_VOLTAGE) && (all_zero || reg16(REG_VOLTAGE) == 0)) {
+    this->reject_block_(data, len, "electrical/cell block with zero pack voltage");
+    return false;
+  }
 
-  ESP_LOGV(TAG, "Processing %zu bytes of data", byte_count);
+  // SOC 0 and max charge current 0 are legitimate, but remaining capacity,
+  // SOH and design capacity cannot all read zero on a working pack.
+  if (has(REG_CAP_REMAINING) && has(REG_SOH) &&
+      (all_zero || (reg16(REG_CAP_REMAINING) == 0 && reg16(REG_SOH) == 0 &&
+                    (!has(REG_DESIGN_CAPACITY) || reg16(REG_DESIGN_CAPACITY) == 0)))) {
+    this->reject_block_(data, len, "capacity/SOC block with zero capacity and SOH");
+    return false;
+  }
 
-  // Determine which register block this is based on byte count
-  if (byte_count == 0x24) {  // 36 bytes = 18 registers (voltage, current, cells)
-    // A live BMS never reports a 0.00 V pack; reject the whole block atomically
-    // so the last good electrical values are retained.
-    if (is_all_zero(payload, byte_count) || get_16bit(0) == 0) {
-      this->reject_block_(data, "electrical/cell block with zero pack voltage");
-      return false;
+  if (all_zero) {
+    this->reject_block_(data, len, "all-zero measurement block");
+    return false;
+  }
+
+  return true;
+}
+
+void EG4Bms::store_block_(uint16_t start_register, const uint8_t *data, size_t len) {
+  const size_t count = len / 2;
+  for (size_t i = 0; i < count; i++) {
+    const uint32_t reg = (uint32_t) start_register + i;
+    if (reg >= REGISTER_IMAGE_SIZE)
+      break;
+    this->registers_[reg] = (uint16_t(data[i * 2]) << 8) | uint16_t(data[i * 2 + 1]);
+    this->pending_.set(reg);
+  }
+}
+
+void EG4Bms::publish_pending_() {
+  if (this->pending_.none())
+    return;
+
+  auto has = [&](uint16_t first, uint16_t last) -> bool {
+    for (uint16_t r = first; r <= last; r++) {
+      if (!this->pending_.test(r))
+        return false;
     }
+    return true;
+  };
+  auto reg = [&](uint16_t r) -> uint16_t { return this->registers_[r]; };
+  auto reg32 = [&](uint16_t r) -> uint32_t { return (uint32_t(reg(r)) << 16) | reg(r + 1); };
+  auto text = [&](uint16_t first, uint16_t count) -> std::string {
+    uint8_t buf[2 * 11];
+    for (uint16_t i = 0; i < count; i++) {
+      buf[i * 2] = reg(first + i) >> 8;
+      buf[i * 2 + 1] = reg(first + i) & 0xFF;
+    }
+    return this->extract_ascii_string_(buf, count * 2);
+  };
 
-    // Total voltage (register 0x0000) - 10mV units
-    float total_voltage = get_16bit(0) * 0.01f;
-    this->publish_state_(this->total_voltage_sensor_, total_voltage);
+  // Total voltage (register 0x0000) - 10mV units
+  if (has(REG_VOLTAGE, REG_VOLTAGE)) {
+    this->publish_state_(this->total_voltage_sensor_, reg(REG_VOLTAGE) * 0.01f);
+  }
 
-    // Current (register 0x0001) - 10mA units, signed
-    int16_t current_raw = (int16_t) get_16bit(2);
-    float current = current_raw * 0.01f;
-    this->publish_state_(this->current_sensor_, current);
+  // Current (register 0x0001) - 10mA units, signed
+  if (has(REG_CURRENT, REG_CURRENT)) {
+    this->publish_state_(this->current_sensor_, (int16_t) reg(REG_CURRENT) * 0.01f);
+  }
 
-    // Calculate power
-    float power = total_voltage * current;
+  if (has(REG_VOLTAGE, REG_CURRENT)) {
+    float power = reg(REG_VOLTAGE) * 0.01f * ((int16_t) reg(REG_CURRENT) * 0.01f);
     this->publish_state_(this->power_sensor_, power);
     this->publish_state_(this->charging_power_sensor_, power > 0 ? power : 0);
     this->publish_state_(this->discharging_power_sensor_, power < 0 ? -power : 0);
+  }
 
-    // Cell voltages (registers 0x0002-0x0011) - mV units
+  // Cell voltages (registers 0x0002-0x0011) - mV units
+  if (has(REG_CELL_VOLTAGE, REG_CELL_VOLTAGE_LAST)) {
     float min_cell_voltage = 10.0f;
     float max_cell_voltage = 0.0f;
     float sum_cell_voltage = 0.0f;
@@ -202,11 +314,11 @@ bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     uint8_t max_cell_number = 0;
 
     for (uint8_t i = 0; i < 16; i++) {
-      uint16_t cell_mv = get_16bit(4 + i * 2);
+      uint16_t cell_mv = reg(REG_CELL_VOLTAGE + i);
       if (cell_mv > 0 && cell_mv < 5000) {  // Valid range check
         float cell_voltage = cell_mv * 0.001f;
         this->publish_state_(this->cells_[i].cell_voltage_sensor_, cell_voltage);
-        
+
         if (cell_voltage < min_cell_voltage) {
           min_cell_voltage = cell_voltage;
           min_cell_number = i + 1;  // Cell numbers are 1-indexed
@@ -221,7 +333,11 @@ bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     }
 
     if (valid_cells > 0) {
-      this->publish_state_(this->cell_count_sensor_, (float) valid_cells);
+      // Until the cell count register (0x0024) has been read, fall back to
+      // counting the cells that report a voltage.
+      if (!this->cell_count_register_seen_) {
+        this->publish_state_(this->cell_count_sensor_, (float) valid_cells);
+      }
       this->publish_state_(this->min_cell_voltage_sensor_, min_cell_voltage);
       this->publish_state_(this->max_cell_voltage_sensor_, max_cell_voltage);
       this->publish_state_(this->delta_cell_voltage_sensor_, max_cell_voltage - min_cell_voltage);
@@ -229,146 +345,151 @@ bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
       this->publish_state_(this->min_voltage_cell_sensor_, (float) min_cell_number);
       this->publish_state_(this->max_voltage_cell_sensor_, (float) max_cell_number);
     }
+  }
 
-  } else if (byte_count == 0x2A) {  // 42 bytes = 21 registers (temps, SOC, SOH, status, etc.)
-    // SOC 0 and max charge current 0 are legitimate, but remaining capacity,
-    // full capacity and SOH cannot all read zero on a working pack. Reject the
-    // whole block atomically so the last good capacity values are retained.
-    if (is_all_zero(payload, byte_count) ||
-        (get_16bit(6) == 0 && get_16bit(10) == 0 && get_16bit(38) == 0)) {
-      this->reject_block_(data, "capacity/SOC block with zero capacity and SOH");
-      return false;
-    }
+  // Temperatures (registers 0x0012-0x0014) - °C, signed
+  if (has(REG_TEMP_PCB, REG_TEMP_PCB)) {
+    this->publish_state_(this->pcb_temperature_sensor_, (float) (int16_t) reg(REG_TEMP_PCB));
+  }
+  if (has(REG_TEMP_AVG, REG_TEMP_AVG)) {
+    this->publish_state_(this->avg_temperature_sensor_, (float) (int16_t) reg(REG_TEMP_AVG));
+  }
+  if (has(REG_TEMP_MAX, REG_TEMP_MAX)) {
+    this->publish_state_(this->max_temperature_sensor_, (float) (int16_t) reg(REG_TEMP_MAX));
+  }
 
-    // PCB/MOSFET temperature (register 0x0012) - °C, signed
-    int16_t pcb_temp = (int16_t) get_16bit(0);
-    this->publish_state_(this->pcb_temperature_sensor_, (float) pcb_temp);
-    
-    // Average temperature (register 0x0013) - °C, signed
-    int16_t avg_temp = (int16_t) get_16bit(2);
-    this->publish_state_(this->avg_temperature_sensor_, (float) avg_temp);
-    
-    // Max temperature (register 0x0014) - °C, signed
-    int16_t max_temp = (int16_t) get_16bit(4);
-    this->publish_state_(this->max_temperature_sensor_, (float) max_temp);
+  // Remaining capacity (register 0x0015) - Ah
+  if (has(REG_CAP_REMAINING, REG_CAP_REMAINING)) {
+    this->publish_state_(this->remaining_capacity_sensor_, (float) reg(REG_CAP_REMAINING));
+  }
 
-    // Remaining capacity (register 0x0015) - Ah
-    uint16_t remaining_cap = get_16bit(6);
-    this->publish_state_(this->remaining_capacity_sensor_, (float) remaining_cap);
+  // Max charge current (register 0x0016) - A
+  if (has(REG_MAX_CHARGE_CURRENT, REG_MAX_CHARGE_CURRENT)) {
+    this->publish_state_(this->max_charge_current_sensor_, (float) reg(REG_MAX_CHARGE_CURRENT));
+  }
 
-    // Max charge current (register 0x0016) - A
-    uint16_t max_charge_current = get_16bit(8);
-    this->publish_state_(this->max_charge_current_sensor_, (float) max_charge_current);
+  // SOH / SOC (registers 0x0017 / 0x0018) - percentage
+  if (has(REG_SOH, REG_SOH)) {
+    this->publish_state_(this->state_of_health_sensor_, (float) reg(REG_SOH));
+  }
+  if (has(REG_SOC, REG_SOC)) {
+    this->publish_state_(this->state_of_charge_sensor_, (float) reg(REG_SOC));
+  }
 
-    // SOH (register 0x0017) - percentage
-    uint16_t soh = get_16bit(10);
-    this->publish_state_(this->state_of_health_sensor_, (float) soh);
-
-    // SOC (register 0x0018) - percentage
-    uint16_t soc = get_16bit(12);
-    this->publish_state_(this->state_of_charge_sensor_, (float) soc);
-
-    // Status (register 0x0019)
-    uint16_t status = get_16bit(14);
+  // Status (register 0x0019)
+  if (has(REG_STATUS, REG_STATUS)) {
+    uint16_t status = reg(REG_STATUS);
     this->publish_state_(this->status_text_sensor_, this->decode_status_(status));
-    
-    // Decode heating from status
-    bool heating = (status & 0x8000) != 0;
-    this->publish_state_(this->heating_binary_sensor_, heating);
+    this->publish_state_(this->heating_binary_sensor_, (status & 0x8000) != 0);
+  }
 
-    // Warnings (register 0x001A)
-    uint16_t warnings = get_16bit(16);
+  // Warnings (register 0x001A)
+  if (has(REG_WARNING, REG_WARNING)) {
+    uint16_t warnings = reg(REG_WARNING);
     this->publish_state_(this->warnings_text_sensor_, this->decode_warnings_(warnings));
     this->publish_state_(this->warnings_bitmask_sensor_, (float) warnings);
+  }
 
-    // Protection (register 0x001B)
-    uint16_t protection = get_16bit(18);
+  // Protection (register 0x001B)
+  if (has(REG_PROTECTION, REG_PROTECTION)) {
+    uint16_t protection = reg(REG_PROTECTION);
     this->publish_state_(this->protection_text_sensor_, this->decode_protection_(protection));
     this->publish_state_(this->protection_bitmask_sensor_, (float) protection);
 
-    // Error (register 0x001C)
-    uint16_t error = get_16bit(20);
-    this->publish_state_(this->error_text_sensor_, this->decode_error_(error));
-    this->publish_state_(this->errors_bitmask_sensor_, (float) error);
-    
     // Charging/discharging allowed based on protection bits
-    // Charging blocked by: Cell OV (0x0002), Pack OV (0x0001), Charge OC (0x0010), 
+    // Charging blocked by: Cell OV (0x0002), Pack OV (0x0001), Charge OC (0x0010),
     //                      Charge OT (0x0100), Charge UT (0x0400)
     // Discharging blocked by: Cell UV (0x0008), Pack UV (0x0004), Discharge OC (0x0020),
     //                         Discharge OT (0x0200), Discharge UT (0x0800), Discharge SC (0x2000)
     bool charging_allowed = !(protection & (0x0001 | 0x0002 | 0x0010 | 0x0100 | 0x0400));
     bool discharging_allowed = !(protection & (0x0004 | 0x0008 | 0x0020 | 0x0200 | 0x0800 | 0x2000));
-    
     this->publish_state_(this->charging_binary_sensor_, charging_allowed);
     this->publish_state_(this->discharging_binary_sensor_, discharging_allowed);
-
-    // Cycle count (registers 0x001D-0x001E) - 32-bit
-    uint32_t cycle_count = get_32bit(22);
-    this->publish_state_(this->cycle_count_sensor_, (float) cycle_count);
-
-    // Temperature sensors 1-6 (registers 0x0021-0x0023) - packed as bytes
-    // Each register contains 2 temperature values in its high and low bytes
-    {
-      this->publish_state_(this->temperatures_[0].temperature_sensor_, (float) (int8_t) payload[30]);  // Reg 0x0021 high byte
-      this->publish_state_(this->temperatures_[1].temperature_sensor_, (float) (int8_t) payload[31]);  // Reg 0x0021 low byte
-      this->publish_state_(this->temperatures_[2].temperature_sensor_, (float) (int8_t) payload[32]);  // Reg 0x0022 high byte
-      this->publish_state_(this->temperatures_[3].temperature_sensor_, (float) (int8_t) payload[33]);  // Reg 0x0022 low byte
-      this->publish_state_(this->temperatures_[4].temperature_sensor_, (float) (int8_t) payload[34]);  // Reg 0x0023 high byte
-      this->publish_state_(this->temperatures_[5].temperature_sensor_, (float) (int8_t) payload[35]);  // Reg 0x0023 low byte
-    }
-
-    // Full capacity (register 0x0025) - 0.1 Ah units
-    uint16_t full_capacity = get_16bit(38);  // (0x0025 - 0x0012) * 2 = 38
-    this->publish_state_(this->full_capacity_sensor_, full_capacity * 0.1f);
-
-  } else if (byte_count == 0x16) {  // 22 bytes = 11 registers (model)
-    std::string model = this->extract_ascii_string_(payload, 22);
-    this->publish_state_(this->model_text_sensor_, model);
-
-  } else if (byte_count == 0x06) {  // 6 bytes = 3 registers (firmware version)
-    std::string firmware = this->extract_ascii_string_(payload, 6);
-    this->publish_state_(this->firmware_text_sensor_, firmware);
-
-  } else if (byte_count == 0x10) {  // 16 bytes = 8 registers (serial number)
-    std::string serial = this->extract_ascii_string_(payload, 16);
-    this->publish_state_(this->serial_number_text_sensor_, serial);
-
-  } else {
-    ESP_LOGW(TAG, "BMS 0x%02X: unrecognised block of %u bytes", this->address_, (unsigned) byte_count);
-    return false;
   }
 
-  // Only the two data blocks prove the BMS is measuring correctly. The text
-  // blocks are served from static strings and keep answering even while a unit
-  // is returning zeroed measurements, so they must not mark it online.
-  return byte_count == 0x24 || byte_count == 0x2A;
+  // Error (register 0x001C)
+  if (has(REG_ERROR, REG_ERROR)) {
+    uint16_t error = reg(REG_ERROR);
+    this->publish_state_(this->error_text_sensor_, this->decode_error_(error));
+    this->publish_state_(this->errors_bitmask_sensor_, (float) error);
+  }
+
+  // Cycle count (registers 0x001D-0x001E) - ULONG, high word first
+  if (has(REG_CYCLE_COUNT, REG_CYCLE_COUNT + 1)) {
+    this->publish_state_(this->cycle_count_sensor_, (float) reg32(REG_CYCLE_COUNT));
+  }
+
+  // Full capacity (registers 0x001F-0x0020) - ULONG in mA·s; /3600 = mAh
+  if (has(REG_FULL_CAPACITY, REG_FULL_CAPACITY + 1)) {
+    this->publish_state_(this->full_capacity_sensor_, reg32(REG_FULL_CAPACITY) / 3600000.0f);
+  }
+
+  // Temperature sensors 1-6 (registers 0x0021-0x0023) - one signed byte each,
+  // high byte first
+  for (uint8_t i = 0; i < 3; i++) {
+    if (has(REG_TEMPS + i, REG_TEMPS + i)) {
+      uint16_t value = reg(REG_TEMPS + i);
+      this->publish_state_(this->temperatures_[i * 2].temperature_sensor_, (float) (int8_t) (value >> 8));
+      this->publish_state_(this->temperatures_[i * 2 + 1].temperature_sensor_, (float) (int8_t) (value & 0xFF));
+    }
+  }
+
+  // Cell count (register 0x0024)
+  if (has(REG_CELL_COUNT, REG_CELL_COUNT)) {
+    this->cell_count_register_seen_ = true;
+    this->publish_state_(this->cell_count_sensor_, (float) reg(REG_CELL_COUNT));
+  }
+
+  // Design capacity (register 0x0025) - 0.1 Ah units
+  if (has(REG_DESIGN_CAPACITY, REG_DESIGN_CAPACITY)) {
+    this->publish_state_(this->designed_capacity_sensor_, reg(REG_DESIGN_CAPACITY) * 0.1f);
+  }
+
+  if (has(REG_MODEL, REG_MODEL + MODEL_REGISTERS - 1)) {
+    this->publish_state_(this->model_text_sensor_, text(REG_MODEL, MODEL_REGISTERS));
+  }
+  if (has(REG_FW_VERSION, REG_FW_VERSION + FW_VERSION_REGISTERS - 1)) {
+    this->publish_state_(this->firmware_text_sensor_, text(REG_FW_VERSION, FW_VERSION_REGISTERS));
+  }
+  if (has(REG_SERIAL_NO, REG_SERIAL_NO + SERIAL_NO_REGISTERS - 1)) {
+    this->publish_state_(this->serial_number_text_sensor_, text(REG_SERIAL_NO, SERIAL_NO_REGISTERS));
+  }
+
+  this->pending_.reset();
 }
 
-void EG4Bms::reject_block_(const std::vector<uint8_t> &data, const char *reason) {
+void EG4Bms::reject_block_(const uint8_t *data, size_t len, const char *reason) {
   this->rejected_frame_count_++;
   ESP_LOGW(TAG, "BMS 0x%02X: rejected %s (%u rejected so far): %s", this->address_, reason,
-           (unsigned) this->rejected_frame_count_, format_hex_pretty(data.data(), data.size()).c_str());
+           (unsigned) this->rejected_frame_count_, format_hex_pretty(data, len).c_str());
   this->publish_state_(this->rejected_frame_count_sensor_, (float) this->rejected_frame_count_);
 }
 
+// Status (register 0x0019): low byte is a bit field (0x01 charging,
+// 0x02 discharging, 0x04 protect, 0x08 charging limited), bit 15 = heater on.
 std::string EG4Bms::decode_status_(uint16_t status) {
   std::string result;
-  
-  bool heating = (status & 0x8000) != 0;
-  uint8_t state = status & 0x000F;
-  
-  if (heating) result += "Heating+";
-  
-  switch (state) {
-    case 0x00: result += "Standby"; break;
-    case 0x01: result += "Charging"; break;
-    case 0x02: result += "Discharging"; break;
-    case 0x04: result += "Protect"; break;
-    case 0x08: result += "Charging Limited"; break;
-    default: result += "Unknown"; break;
+
+  if (status & 0x8000) result += "Heating+";
+
+  const uint8_t state = status & 0x00FF;
+  if (state == 0) {
+    result += "Standby";
+    return result;
   }
-  
-  return result;
+
+  std::string states;
+  if (state & 0x01) states += "Charging+";
+  if (state & 0x02) states += "Discharging+";
+  if (state & 0x04) states += "Protect+";
+  if (state & 0x08) states += "Charging Limited+";
+  if (states.empty()) {
+    states = "Unknown";
+  } else {
+    states.pop_back();
+  }
+
+  return result + states;
 }
 
 std::string EG4Bms::decode_warnings_(uint16_t warnings) {

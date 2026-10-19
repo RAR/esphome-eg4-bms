@@ -6,6 +6,8 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/eg4_modbus/eg4_modbus.h"
 
+#include <bitset>
+
 namespace esphome {
 namespace eg4_bms {
 
@@ -62,6 +64,9 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
     remaining_capacity_sensor_ = remaining_capacity;
   }
   void set_full_capacity_sensor(sensor::Sensor *full_capacity) { full_capacity_sensor_ = full_capacity; }
+  void set_designed_capacity_sensor(sensor::Sensor *designed_capacity) {
+    designed_capacity_sensor_ = designed_capacity;
+  }
 
   // State sensors
   void set_state_of_charge_sensor(sensor::Sensor *soc) { state_of_charge_sensor_ = soc; }
@@ -96,7 +101,8 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void set_firmware_version_text_sensor(text_sensor::TextSensor *firmware) { firmware_text_sensor_ = firmware; }
   void set_serial_number_text_sensor(text_sensor::TextSensor *serial) { serial_number_text_sensor_ = serial; }
 
-  void on_modbus_data(const std::vector<uint8_t> &data) override;
+  void on_modbus_block(uint8_t address, uint8_t function, uint16_t start_register, const uint8_t *data,
+                       size_t len) override;
 
   void dump_config() override;
   void update() override;
@@ -132,6 +138,7 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   // Capacity sensors
   sensor::Sensor *remaining_capacity_sensor_{nullptr};
   sensor::Sensor *full_capacity_sensor_{nullptr};
+  sensor::Sensor *designed_capacity_sensor_{nullptr};
 
   // State sensors
   sensor::Sensor *state_of_charge_sensor_{nullptr};
@@ -165,6 +172,20 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
     sensor::Sensor *temperature_sensor_{nullptr};
   } temperatures_[6];
 
+  // Local image of registers 0x00-0x7F. Accepted blocks are written here and
+  // the registers they covered are marked pending; publish_pending_() then
+  // decodes every sensor whose registers are all pending, so any block layout
+  // that covers a sensor's registers decodes it (active mode's five small
+  // blocks as well as the link master's single 0x00 x45 block).
+  static const uint16_t REGISTER_IMAGE_SIZE = 0x80;
+  uint16_t registers_[REGISTER_IMAGE_SIZE]{};
+  std::bitset<REGISTER_IMAGE_SIZE> pending_;
+  bool cell_count_register_seen_{false};
+
+  // Passive mode: when a valid block for this device was last seen on the bus.
+  bool seen_{false};
+  uint32_t last_seen_ms_{0};
+
   uint8_t request_step_{0};
   uint8_t text_request_step_{0};
   uint8_t no_response_count_{0};
@@ -176,11 +197,15 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void publish_state_(sensor::Sensor *sensor, float value);
   void publish_state_(text_sensor::TextSensor *text_sensor, const std::string &state);
   
-  // Returns false when the block was rejected as implausible, in which case no
-  // state was published and the online tracker must not be reset.
-  bool on_status_data_(const std::vector<uint8_t> &data);
+  // Returns false when the block was rejected as implausible, in which case it
+  // must not be stored or published and must not count as the BMS being online.
+  bool validate_block_(uint16_t start_register, const uint8_t *data, size_t len);
+  void store_block_(uint16_t start_register, const uint8_t *data, size_t len);
+  void publish_pending_();
+  void on_device_answered_();
+  void update_passive_();
 
-  void reject_block_(const std::vector<uint8_t> &data, const char *reason);
+  void reject_block_(const uint8_t *data, size_t len, const char *reason);
 
   void reset_online_status_tracker_();
   void track_online_status_();

@@ -1,0 +1,290 @@
+# EG4-LL paralleling bus, ESP as the bus master: Waveshare ESP32-S3-Relay-1CH.
+#
+# With no pack set to DIP ID 1 there is no pack master on the paralleling bus, so
+# the ESP polls every pack itself (eg4_modbus active mode) and gets full per-pack
+# data. Set every pack to its own slave ID (2, 3, 4, ...). Use this only when
+# nothing needs a pack master talking to an inverter (e.g. the inverter is fed by
+# YamBMS or a CAN proxy instead).
+#
+# The board has an onboard RS485 transceiver (TXD1 GPIO17, RXD1 GPIO18) whose
+# direction is set by RS485_EN on GPIO21, used here as the flow-control pin.
+# Leave its 120R termination jumper off; the pack bus is already terminated.
+#
+# Wiring - any free paralleling port of the chained packs (RJ45, T-568B):
+#   A+  -> pin 1 (white/orange)
+#   B-  -> pin 2 (orange)
+#   GND -> pin 8 (brown), if your board has a GND terminal
+# If nothing decodes, swap A+ and B-.
+
+substitutions:
+  name: eg4-link-master
+  device_description: "Poll EG4-LL packs on the paralleling bus as its master"
+  external_components_source: github://rar/esphome-eg4-bms@main
+  # Onboard RS485 of the Waveshare ESP32-S3-Relay-1CH
+  rx_pin: GPIO18
+  tx_pin: GPIO17
+  flow_control_pin: GPIO21
+
+esphome:
+  name: ${name}
+  comment: ${device_description}
+  min_version: 2024.6.0
+  project:
+    name: "rar.esphome-eg4-bms"
+    version: 1.0.0
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: ${external_components_source}
+    refresh: 0s
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+ota:
+  platform: esphome
+
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+
+uart:
+  id: uart_link
+  # The link bus runs Modbus RTU at 19200 8N1.
+  baud_rate: 19200
+  rx_pin: ${rx_pin}
+  tx_pin: ${tx_pin}
+  rx_buffer_size: 512
+
+eg4_modbus:
+  id: link0
+  uart_id: uart_link
+  mode: active
+  flow_control_pin: ${flow_control_pin}
+
+# One eg4_bms per pack DIP ID. The hub queues one request at a time, so all
+# packs share the bus without colliding.
+eg4_bms:
+  - id: pack2
+    address: 2
+    eg4_modbus_id: link0
+    update_interval: 10s
+  - id: pack3
+    address: 3
+    eg4_modbus_id: link0
+    update_interval: 10s
+  - id: pack4
+    address: 4
+    eg4_modbus_id: link0
+    update_interval: 10s
+  - id: pack5
+    address: 5
+    eg4_modbus_id: link0
+    update_interval: 10s
+
+binary_sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack2
+    online_status:
+      name: "pack 2 online"
+    heating:
+      name: "pack 2 heating"
+  - platform: eg4_bms
+    eg4_bms_id: pack3
+    online_status:
+      name: "pack 3 online"
+    heating:
+      name: "pack 3 heating"
+  - platform: eg4_bms
+    eg4_bms_id: pack4
+    online_status:
+      name: "pack 4 online"
+    heating:
+      name: "pack 4 heating"
+  - platform: eg4_bms
+    eg4_bms_id: pack5
+    online_status:
+      name: "pack 5 online"
+    heating:
+      name: "pack 5 heating"
+
+sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack2
+    total_voltage:
+      name: "pack 2 voltage"
+    current:
+      name: "pack 2 current"
+    power:
+      name: "pack 2 power"
+    state_of_charge:
+      name: "pack 2 state of charge"
+    state_of_health:
+      name: "pack 2 state of health"
+    remaining_capacity:
+      name: "pack 2 remaining capacity"
+    full_capacity:
+      name: "pack 2 full capacity"
+    cycle_count:
+      name: "pack 2 cycle count"
+    min_cell_voltage:
+      name: "pack 2 min cell voltage"
+    max_cell_voltage:
+      name: "pack 2 max cell voltage"
+    delta_cell_voltage:
+      name: "pack 2 delta cell voltage"
+    max_temperature:
+      name: "pack 2 max temperature"
+    rejected_frame_count:
+      name: "pack 2 rejected frames"
+
+  - platform: eg4_bms
+    eg4_bms_id: pack3
+    total_voltage:
+      name: "pack 3 voltage"
+    current:
+      name: "pack 3 current"
+    power:
+      name: "pack 3 power"
+    state_of_charge:
+      name: "pack 3 state of charge"
+    state_of_health:
+      name: "pack 3 state of health"
+    remaining_capacity:
+      name: "pack 3 remaining capacity"
+    full_capacity:
+      name: "pack 3 full capacity"
+    cycle_count:
+      name: "pack 3 cycle count"
+    min_cell_voltage:
+      name: "pack 3 min cell voltage"
+    max_cell_voltage:
+      name: "pack 3 max cell voltage"
+    delta_cell_voltage:
+      name: "pack 3 delta cell voltage"
+    max_temperature:
+      name: "pack 3 max temperature"
+    rejected_frame_count:
+      name: "pack 3 rejected frames"
+
+  - platform: eg4_bms
+    eg4_bms_id: pack4
+    total_voltage:
+      name: "pack 4 voltage"
+    current:
+      name: "pack 4 current"
+    power:
+      name: "pack 4 power"
+    state_of_charge:
+      name: "pack 4 state of charge"
+    state_of_health:
+      name: "pack 4 state of health"
+    remaining_capacity:
+      name: "pack 4 remaining capacity"
+    full_capacity:
+      name: "pack 4 full capacity"
+    cycle_count:
+      name: "pack 4 cycle count"
+    min_cell_voltage:
+      name: "pack 4 min cell voltage"
+    max_cell_voltage:
+      name: "pack 4 max cell voltage"
+    delta_cell_voltage:
+      name: "pack 4 delta cell voltage"
+    max_temperature:
+      name: "pack 4 max temperature"
+    rejected_frame_count:
+      name: "pack 4 rejected frames"
+  - platform: eg4_bms
+    eg4_bms_id: pack5
+    total_voltage:
+      name: "pack 5 voltage"
+    current:
+      name: "pack 5 current"
+    power:
+      name: "pack 5 power"
+    state_of_charge:
+      name: "pack 5 state of charge"
+    state_of_health:
+      name: "pack 5 state of health"
+    remaining_capacity:
+      name: "pack 5 remaining capacity"
+    full_capacity:
+      name: "pack 5 full capacity"
+    cycle_count:
+      name: "pack 5 cycle count"
+    min_cell_voltage:
+      name: "pack 5 min cell voltage"
+    max_cell_voltage:
+      name: "pack 5 max cell voltage"
+    delta_cell_voltage:
+      name: "pack 5 delta cell voltage"
+    max_temperature:
+      name: "pack 5 max temperature"
+    rejected_frame_count:
+      name: "pack 5 rejected frames"
+
+text_sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack2
+    status:
+      name: "pack 2 status"
+    warnings:
+      name: "pack 2 warnings"
+    protection:
+      name: "pack 2 protection"
+    model:
+      name: "pack 2 model"
+    firmware_version:
+      name: "pack 2 firmware"
+    serial_number:
+      name: "pack 2 serial"
+  - platform: eg4_bms
+    eg4_bms_id: pack3
+    status:
+      name: "pack 3 status"
+    warnings:
+      name: "pack 3 warnings"
+    protection:
+      name: "pack 3 protection"
+    model:
+      name: "pack 3 model"
+    firmware_version:
+      name: "pack 3 firmware"
+    serial_number:
+      name: "pack 3 serial"
+  - platform: eg4_bms
+    eg4_bms_id: pack4
+    status:
+      name: "pack 4 status"
+    warnings:
+      name: "pack 4 warnings"
+    protection:
+      name: "pack 4 protection"
+    model:
+      name: "pack 4 model"
+    firmware_version:
+      name: "pack 4 firmware"
+    serial_number:
+      name: "pack 4 serial"
+  - platform: eg4_bms
+    eg4_bms_id: pack5
+    status:
+      name: "pack 5 status"
+    warnings:
+      name: "pack 5 warnings"
+    protection:
+      name: "pack 5 protection"
+    model:
+      name: "pack 5 model"
+    firmware_version:
+      name: "pack 5 firmware"
+    serial_number:
+      name: "pack 5 serial"
