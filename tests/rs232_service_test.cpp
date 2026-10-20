@@ -3,7 +3,7 @@
 //
 //   make -C tests          # builds and runs
 //
-// rs232_service_frames.txt holds the replies of a DIP-ID-1 pack on its RS232
+// rs232_service_frames.txt holds the replies of a lone pack on its RS232
 // service port (115200 8N1) to the six reads eg4_bms makes there, captured with
 // an AtomS3 + RS232 base on 2026-10-20. Each request line was rebuilt from the
 // read that was sent and placed 10 ms before its reply; the replies are as

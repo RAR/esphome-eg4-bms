@@ -92,6 +92,17 @@ void EG4Bms::update() {
     this->publish_state_(this->rejected_frame_count_sensor_, 0.0f);
   }
 
+  // A staged write whose parameter block never arrived is refused here rather
+  // than left showing the requested value.
+  if (!this->staged_writes_.empty() && millis() - this->staged_writes_.front().staged_ms > STAGED_WRITE_MAX_AGE_MS) {
+    for (const auto &w : this->staged_writes_) {
+      ESP_LOGW(TAG, "BMS 0x%02X: write of %.3f to 0x%04X refused: the parameter block could not be read in time",
+               this->address_, w.value, w.reg);
+      this->republish_setting_(w.reg);
+    }
+    this->staged_writes_.clear();
+  }
+
   if (this->is_passive()) {
     this->update_passive_();
     this->update_counter_++;
@@ -228,19 +239,6 @@ void EG4Bms::on_modbus_block(uint8_t address, uint8_t function, uint16_t start_r
     return;
   }
 
-  // A different serial number means another pack is on the port: its
-  // thresholds are unknown until its own block has been read.
-  if (this->settings_seen_) {
-    for (size_t i = 0; i < count; i++) {
-      const uint16_t r = start_register + i;
-      if (r >= REG_SERIAL_NO && r < REG_SERIAL_NO + SERIAL_NO_REGISTERS &&
-          this->registers_[r] != ((uint16_t(data[i * 2]) << 8) | data[i * 2 + 1])) {
-        this->forget_settings_("serial number changed");
-        break;
-      }
-    }
-  }
-
   // The EG4-LL paralleling bus answers the parameter block with every
   // threshold zero (and a glitching BMS might too); storing or publishing
   // those would report 0 V protection limits and defeat the ordering checks.
@@ -264,9 +262,11 @@ void EG4Bms::on_modbus_block(uint8_t address, uint8_t function, uint16_t start_r
   } else {
     this->store_block_(start_register, data, len);
     if (overlaps(start_register, count, REG_SETTINGS, REG_SETTINGS_LAST)) {
-      if (start_register <= 0x002F && start_register + count > 0x0087)
-        this->settings_seen_ = true;  // every threshold register now holds the BMS's value
       this->verify_writes_(start_register, count);
+      if (start_register <= 0x002F && start_register + count > 0x0087) {
+        this->settings_seen_ = true;  // every threshold register now holds the BMS's value
+        this->apply_staged_writes_();
+      }
     }
   }
 
@@ -567,11 +567,13 @@ void EG4Bms::set_writes_enabled(bool enabled) {
 }
 
 void EG4Bms::forget_settings_(const char *why) {
-  if (this->settings_seen_ || !this->expected_writes_.empty())
-    ESP_LOGW(TAG, "BMS 0x%02X: %s - settings writes blocked until the parameter block is read again",
-             this->address_, why);
+  if (this->settings_seen_ || !this->expected_writes_.empty() || !this->staged_writes_.empty())
+    ESP_LOGW(TAG, "BMS 0x%02X: %s - forgetting the parameter block", this->address_, why);
   this->settings_seen_ = false;
   this->expected_writes_.clear();
+  for (const auto &w : this->staged_writes_)
+    ESP_LOGW(TAG, "BMS 0x%02X: staged write to 0x%04X dropped", this->address_, w.reg);
+  this->staged_writes_.clear();
   if (this->parent_ != nullptr)
     this->parent_->cancel_writes(this->address_);
 }
@@ -607,12 +609,14 @@ void EG4Bms::republish_setting_(uint16_t reg) {
   }
 }
 
+// Writes are read-before-write: write_setting() only checks what it can
+// without the BMS (armed, range) and stages the value, then asks for the
+// parameter block. apply_staged_writes_() runs when that block arrives, so the
+// ordering checks always use what the pack on the port holds right now - the
+// ZTR "serial" is the same on every pack, so a swapped pack cannot be told
+// apart any other way.
 bool EG4Bms::write_setting(uint16_t reg, float value) {
-  const SettingNumber *setting = nullptr;
-  for (const auto &s : this->setting_numbers_) {
-    if (s.reg == reg)
-      setting = &s;
-  }
+  const SettingNumber *setting = this->find_setting_number_(reg);
   if (setting == nullptr || !is_threshold_register(reg) || reg >= REGISTER_IMAGE_SIZE) {
     ESP_LOGE(TAG, "BMS 0x%02X: 0x%04X is not a writable setting", this->address_, reg);
     return false;
@@ -628,52 +632,96 @@ bool EG4Bms::write_setting(uint16_t reg, float value) {
     return refuse("settings writes are disabled (turn on the write-enable switch first)");
   if (this->is_passive())
     return refuse("passive mode never transmits");
-  if (!this->settings_seen_)
-    return refuse("the parameter block has not been read from the BMS yet");
   if (std::isnan(value) || value < setting->min_value - setting->multiplier / 2 ||
       value > setting->max_value + setting->multiplier / 2)
     return refuse("value is outside the allowed range");
 
-  this->expire_writes_();
   const float raw_f = std::round((value - setting->offset) / setting->multiplier);
   if (std::isnan(raw_f) || raw_f < 0.0f || raw_f > 65535.0f)
     return refuse("value does not fit the register");
-  const uint16_t raw = (uint16_t) raw_f;
 
-  for (const auto &order : this->setting_order_) {
-    if (order.lower_reg == reg) {
-      const uint16_t upper = this->effective_register_(order.upper_reg);
-      if (order.strict ? raw >= upper : raw > upper) {
-        ESP_LOGW(TAG, "BMS 0x%02X: 0x%04X must stay %s 0x%04X (raw %u)", this->address_, reg,
-                 order.strict ? "<" : "<=", order.upper_reg, upper);
-        return refuse("it would break the warning/protection/release order");
-      }
-    }
-    if (order.upper_reg == reg) {
-      const uint16_t lower = this->effective_register_(order.lower_reg);
-      if (order.strict ? raw <= lower : raw < lower) {
-        ESP_LOGW(TAG, "BMS 0x%02X: 0x%04X must stay %s 0x%04X (raw %u)", this->address_, reg,
-                 order.strict ? ">" : ">=", order.lower_reg, lower);
-        return refuse("it would break the warning/protection/release order");
-      }
-    }
-  }
-
-  if (raw == this->effective_register_(reg)) {
-    ESP_LOGI(TAG, "BMS 0x%02X: 0x%04X already %u, nothing to write", this->address_, reg, raw);
-    this->republish_setting_(reg);
-    return true;
-  }
-
-  if (!this->write_registers(reg, &raw, 1))
-    return refuse("the hub could not queue the write");
-
-  ESP_LOGI(TAG, "BMS 0x%02X: writing 0x%04X = %u (was %u)", this->address_, reg, raw,
-           this->effective_register_(reg));
-  this->expected_writes_.push_back({reg, raw, false, millis()});
-  // Read the block back: the numbers publish what the BMS actually stored.
+  this->staged_writes_.push_back({reg, (uint16_t) raw_f, value, millis()});
+  ESP_LOGD(TAG, "BMS 0x%02X: 0x%04X = %u staged, reading the parameter block first", this->address_, reg,
+           (uint16_t) raw_f);
   this->send(FUNCTION_READ_HOLDING, REG_SETTINGS, SETTINGS_REGISTERS);
   return true;
+}
+
+const EG4Bms::SettingNumber *EG4Bms::find_setting_number_(uint16_t reg) const {
+  for (const auto &s : this->setting_numbers_) {
+    if (s.reg == reg)
+      return &s;
+  }
+  return nullptr;
+}
+
+void EG4Bms::apply_staged_writes_() {
+  if (this->staged_writes_.empty())
+    return;
+  std::vector<StagedWrite> staged;
+  staged.swap(this->staged_writes_);
+  this->expire_writes_();
+  const uint32_t now = millis();
+
+  for (const auto &w : staged) {
+    const uint16_t reg = w.reg;
+    const uint16_t raw = w.raw;
+    auto refuse = [&](const char *why) {
+      ESP_LOGW(TAG, "BMS 0x%02X: write of %.3f to 0x%04X refused: %s", this->address_, w.value, reg, why);
+      this->republish_setting_(reg);
+    };
+
+    if (!this->writes_enabled_) {
+      refuse("settings writes were disabled before the block was read");
+      continue;
+    }
+    if (now - w.staged_ms > STAGED_WRITE_MAX_AGE_MS) {
+      refuse("the parameter block could not be read in time");
+      continue;
+    }
+
+    bool ordered = true;
+    for (const auto &order : this->setting_order_) {
+      if (order.lower_reg == reg) {
+        const uint16_t upper = this->effective_register_(order.upper_reg);
+        if (order.strict ? raw >= upper : raw > upper) {
+          ESP_LOGW(TAG, "BMS 0x%02X: 0x%04X must stay %s 0x%04X (raw %u)", this->address_, reg,
+                   order.strict ? "<" : "<=", order.upper_reg, upper);
+          ordered = false;
+        }
+      }
+      if (order.upper_reg == reg) {
+        const uint16_t lower = this->effective_register_(order.lower_reg);
+        if (order.strict ? raw <= lower : raw < lower) {
+          ESP_LOGW(TAG, "BMS 0x%02X: 0x%04X must stay %s 0x%04X (raw %u)", this->address_, reg,
+                   order.strict ? ">" : ">=", order.lower_reg, lower);
+          ordered = false;
+        }
+      }
+    }
+    if (!ordered) {
+      refuse("it would break the warning/protection/release order");
+      continue;
+    }
+
+    const uint16_t current = this->effective_register_(reg);
+    if (raw == current) {
+      ESP_LOGI(TAG, "BMS 0x%02X: 0x%04X already %u, nothing to write", this->address_, reg, raw);
+      this->republish_setting_(reg);
+      continue;
+    }
+
+    if (!this->write_registers(reg, &raw, 1)) {
+      refuse("the hub could not queue the write");
+      continue;
+    }
+    ESP_LOGI(TAG, "BMS 0x%02X: writing 0x%04X = %u (was %u)", this->address_, reg, raw, current);
+    this->expected_writes_.push_back({reg, raw, false, now});
+  }
+
+  // Read the block back: the numbers publish what the BMS actually stored.
+  if (!this->expected_writes_.empty())
+    this->send(FUNCTION_READ_HOLDING, REG_SETTINGS, SETTINGS_REGISTERS);
 }
 
 bool EG4Bms::write_clock(const ESPTime &time) {
@@ -867,7 +915,7 @@ void EG4Bms::track_online_status_() {
 void EG4Bms::publish_device_unavailable_() {
   this->publish_state_(this->online_status_binary_sensor_, false);
   // The pack may be swapped while it is away; never write against old values.
-  if (this->settings_seen_ || !this->expected_writes_.empty())
+  if (this->settings_seen_ || !this->expected_writes_.empty() || !this->staged_writes_.empty())
     this->forget_settings_("BMS offline");
 }
 

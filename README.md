@@ -225,9 +225,11 @@ and the BMS clock. The paralleling bus answers the same read with zeros. It
 also reports the underlying BMS identity (for example `ZTR-16S200A-10KW-STD2`
 / `S02T11` where the paralleling bus says `LFP-51.2V280Ah-V1.0` / `Z02T03`).
 
-The port only answers when the pack is set to **DIP ID 1**, **no other pack is
-plugged into its paralleling ports**, and you use the same RJ45 port as the BMS
-tool's cable. Treat it as a service setup for one pack at a time.
+The port only answers when **no other pack is plugged into its paralleling
+ports**, and you use the same RJ45 port as the BMS tool's cable. It always
+answers as Modbus address 1, whatever the DIP ID, and the ZTR "serial number"
+it reports is the same on every pack, so packs cannot share one line: treat
+it as a service setup for one pack at a time.
 
 It is plain `active` mode at address 1 on an RS232 transceiver, for example an
 AtomS3 Lite with the Atomic RS232 base (TX GPIO6, RX GPIO5). See
@@ -281,13 +283,15 @@ nothing itself, so the component refuses a write unless:
 
 - the `allow_settings_writes` switch is on (it always boots off, and turning
   it off cancels any write still queued);
-- the parameter block has been read from this BMS since it last came online
-  (going offline, a different serial number or a blank read forgets it);
+- it is checked against a parameter block read **after** you asked:
+  every write first re-reads the block and is only checked and sent when it
+  arrives (within 5 s), so a pack swapped on the port is never written with
+  another pack's values;
 - the value is within the number's range (`LIMITS` in
   `components/eg4_bms/settings_table.py`). No range lets a protection go past
   what the pack ships with: cell OV 3.80 V, cell UV 2.30 V, 300 A, charge OT
   70 °C, discharge OT 75 °C, MOSFET OT 110 °C, charge UT no lower than -10 °C;
-- the order rules still hold (`ORDER`), counting writes still in flight:
+- the order rules (`ORDER`) hold, counting writes still in flight:
   over-limit triples need release < warning < protection, under-limit triples
   protection < warning < release, heater on < off, over-current stage 1 <=
   stage 2 <= short circuit, cell UV release < cell OV release and balance
@@ -614,7 +618,7 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
   disabled or the BMS goes offline.
   `eg4_modbus` can now queue FC16 writes and parse their acknowledgements.
 - RS232 service port support: 51 parameter block sensors and a `bms_time`
-  text sensor, read from FC03 `0x2D` x91 at 115200 on a lone DIP-ID-1 pack;
+  text sensor, read from FC03 `0x2D` x91 at 115200 from a lone pack;
   an all-zero threshold block (paralleling bus) is dropped instead of
   published; `atoms3-rs232-service-example.yaml`; host tests against a real
   reply (`tests/rs232_service_test.cpp`, `tests/settings_table_test.py`)

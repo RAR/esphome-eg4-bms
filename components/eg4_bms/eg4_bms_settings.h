@@ -4,7 +4,7 @@
 // (tests/rs232_service_test.cpp). Plain C++, no ESPHome dependencies.
 //
 // The parameter block is FC03 0x2D x91 (0x2D-0x87). Its registers are only
-// served on the pack's RS232 service port (115200 8N1, DIP ID 1, no other pack
+// served on the pack's RS232 service port (115200 8N1, address 1, no other pack
 // on the paralleling ports); on the EG4-LL paralleling bus the Z02 firmware
 // answers the same request with the threshold registers all zero.
 

@@ -121,10 +121,10 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void set_read_settings(bool read_settings) { read_settings_ = read_settings; }
 
   // Writing settings (RS232 service port). Every write needs writes enabled
-  // (the write-enable switch), a parameter block read from the BMS, a value
-  // in range and the ordering rules still holding; it is then sent as one
-  // FC16 per register, like the BMS tool, and verified by re-reading the
-  // block.
+  // (the write-enable switch) and a value in range; it is staged, the
+  // parameter block is read, and only then are the ordering rules checked
+  // against that fresh block and the value sent as one FC16 per register,
+  // like the BMS tool, and verified by re-reading the block.
   void add_setting_number(uint16_t reg, float multiplier, float offset, float min_value, float max_value,
                           SettingListener *listener) {
     this->setting_numbers_.push_back({reg, multiplier, offset, min_value, max_value, listener});
@@ -135,7 +135,8 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   }
   void set_writes_enabled(bool enabled);
   bool get_writes_enabled() const { return writes_enabled_; }
-  // Returns false (and re-publishes the BMS's value) when the write is refused.
+  // Returns false (and re-publishes the BMS's value) when the write is refused
+  // outright; a staged write can still be refused when the block arrives.
   bool write_setting(uint16_t reg, float value);
   bool write_clock(const ESPTime &time);
 
@@ -246,12 +247,24 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   std::vector<ExpectedWrite> expected_writes_;
   static const uint32_t WRITE_EXPIRY_MS = 10000;
 
+  // Writes waiting for a fresh parameter block (read-before-write).
+  struct StagedWrite {
+    uint16_t reg;
+    uint16_t raw;
+    float value;
+    uint32_t staged_ms;
+  };
+  std::vector<StagedWrite> staged_writes_;
+  static const uint32_t STAGED_WRITE_MAX_AGE_MS = 5000;
+
+  const SettingNumber *find_setting_number_(uint16_t reg) const;
+  void apply_staged_writes_();
   void republish_setting_(uint16_t reg);
   void verify_writes_(uint16_t start_register, size_t count);
   void expire_writes_();
   uint16_t effective_register_(uint16_t reg) const;
-  // Forgets the parameter block (offline, another pack, blank block) so no
-  // write is checked against values this BMS may not hold.
+  // Forgets the parameter block (offline, blank block) so nothing is shown or
+  // checked against values this BMS may not hold.
   void forget_settings_(const char *why);
 
   struct Cell {

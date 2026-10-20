@@ -13,7 +13,6 @@
 # protection limits: change them only if you know why.
 #
 # The port answers only when:
-#   - the pack is set to DIP ID 1, and
 #   - no other pack is plugged into its paralleling ports (a second pack's
 #     link cable stops the RS232 port answering), and
 #   - you use the same RJ45 port the BMS tool's cable uses.
@@ -88,7 +87,7 @@ eg4_modbus:
 
 eg4_bms:
   - id: pack
-    # The service port only answers at the pack's DIP ID, which must be 1.
+    # The service port always answers as address 1, whatever the DIP ID.
     address: 1
     eg4_modbus_id: service0
     update_interval: 5s

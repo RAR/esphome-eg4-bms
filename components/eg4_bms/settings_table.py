@@ -5,7 +5,7 @@ Every table here is a pure literal so the host test
 """
 
 # Parameter block (FC03 0x2D x91), served only on the pack's RS232 service port
-# (115200 8N1, pack at DIP ID 1 with no other pack on its paralleling ports).
+# (115200 8N1, address 1 at any DIP ID, no other pack on its paralleling ports).
 # key: (register, multiplier, offset, unit, device_class, accuracy_decimals)
 # Published value = raw * multiplier + offset. Thresholds come in warning /
 # protection / release triples. Temperatures are stored as degC + 50. Units

@@ -34,8 +34,8 @@ capture of the link master's `0x00` x45 poll.
 ### Configuration/Threshold Registers (0x002D - 0x0087)
 
 Read with FC03 0x002D x91 (0x5B), as the vendor BMS tool does. **Only the pack's
-RS232 service port serves this block** (Modbus RTU 115200 8N1, pack at DIP ID 1,
-no other pack on its paralleling ports). On the EG4-LL paralleling bus the Z02
+RS232 service port serves this block** (Modbus RTU 115200 8N1, always Modbus
+address 1 whatever the DIP ID, no other pack on its paralleling ports). On the EG4-LL paralleling bus the Z02
 firmware answers the same read with every threshold register zero (the clock
 and the model/firmware/serial text are still filled in). `eg4_bms` exposes the
 thresholds as diagnostic sensors (`SETTINGS` in `components/eg4_bms/sensor.py`)
