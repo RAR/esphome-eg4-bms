@@ -5,8 +5,10 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/eg4_modbus/eg4_modbus.h"
+#include "eg4_bms_settings.h"
 
 #include <bitset>
+#include <vector>
 
 namespace esphome {
 namespace eg4_bms {
@@ -100,6 +102,15 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void set_model_text_sensor(text_sensor::TextSensor *model) { model_text_sensor_ = model; }
   void set_firmware_version_text_sensor(text_sensor::TextSensor *firmware) { firmware_text_sensor_ = firmware; }
   void set_serial_number_text_sensor(text_sensor::TextSensor *serial) { serial_number_text_sensor_ = serial; }
+  void set_bms_time_text_sensor(text_sensor::TextSensor *bms_time) { bms_time_text_sensor_ = bms_time; }
+
+  // Parameter block (0x2D-0x87, RS232 service port only). Each setting sensor
+  // publishes raw * multiplier + offset of one register; configuring any of
+  // them (or bms_time) makes update() read the block.
+  void add_setting_sensor(uint16_t reg, float multiplier, float offset, sensor::Sensor *sensor) {
+    this->setting_sensors_.push_back({reg, multiplier, offset, sensor});
+  }
+  void set_read_settings(bool read_settings) { read_settings_ = read_settings; }
 
   void on_modbus_block(uint8_t address, uint8_t function, uint16_t start_register, const uint8_t *data,
                        size_t len) override;
@@ -163,6 +174,17 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   text_sensor::TextSensor *model_text_sensor_{nullptr};
   text_sensor::TextSensor *firmware_text_sensor_{nullptr};
   text_sensor::TextSensor *serial_number_text_sensor_{nullptr};
+  text_sensor::TextSensor *bms_time_text_sensor_{nullptr};
+
+  struct SettingSensor {
+    uint16_t reg;
+    float multiplier;
+    float offset;
+    sensor::Sensor *sensor;
+  };
+  std::vector<SettingSensor> setting_sensors_;
+  bool read_settings_{false};
+  bool blank_settings_logged_{false};
 
   struct Cell {
     sensor::Sensor *cell_voltage_sensor_{nullptr};
@@ -172,12 +194,12 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
     sensor::Sensor *temperature_sensor_{nullptr};
   } temperatures_[6];
 
-  // Local image of registers 0x00-0x7F. Accepted blocks are written here and
+  // Local image of registers 0x00-0x87. Accepted blocks are written here and
   // the registers they covered are marked pending; publish_pending_() then
   // decodes every sensor whose registers are all pending, so any block layout
   // that covers a sensor's registers decodes it (active mode's five small
   // blocks as well as the link master's single 0x00 x45 block).
-  static const uint16_t REGISTER_IMAGE_SIZE = 0x80;
+  static const uint16_t REGISTER_IMAGE_SIZE = REG_SETTINGS_LAST + 1;
   uint16_t registers_[REGISTER_IMAGE_SIZE]{};
   std::bitset<REGISTER_IMAGE_SIZE> pending_;
   bool cell_count_register_seen_{false};

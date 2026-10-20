@@ -1,0 +1,235 @@
+# EG4-LL RS232 service port, ESP as the BMS tool: AtomS3 Lite + Atomic RS232 base.
+#
+# The pack's RS232 service port is where the vendor BMS tool reads and writes
+# the BMS settings. It runs Modbus RTU at 115200 8N1 and serves the full
+# parameter block (FC03 0x2D x91: protection thresholds, balancing, heater,
+# BMS clock), which the paralleling bus answers with zeros. Reads only for now.
+#
+# The port answers only when:
+#   - the pack is set to DIP ID 1, and
+#   - no other pack is plugged into its paralleling ports (a second pack's
+#     link cable stops the RS232 port answering), and
+#   - you use the same RJ45 port the BMS tool's cable uses.
+# So this is a service setup for one pack at a time, not a live bank monitor.
+#
+# Wiring - the EG4 RS232 cable (FT232R) breakout, or the pack's RJ45 directly:
+#   base TX  -> the pack's RXD (the wire the BMS tool transmits on)
+#   base RX  -> the pack's TXD (idles about -5 V against ground)
+#   base GND -> signal ground
+# The base's MAX3232 handles the RS232 levels; the AtomS3 drives it on GPIO6
+# (TX) and reads it on GPIO5 (RX). If nothing decodes, swap TX and RX.
+
+substitutions:
+  name: eg4-rs232-service
+  device_description: "Read an EG4-LL pack's settings over its RS232 service port"
+  external_components_source: github://rar/esphome-eg4-bms@main
+  # Atomic RS232 base on the AtomS3 bottom header
+  rx_pin: GPIO5
+  tx_pin: GPIO6
+
+esphome:
+  name: ${name}
+  comment: ${device_description}
+  min_version: 2024.6.0
+  project:
+    name: "rar.esphome-eg4-bms"
+    version: 1.0.0
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: ${external_components_source}
+    refresh: 0s
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+ota:
+  platform: esphome
+
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+
+uart:
+  id: uart_service
+  # The service port runs Modbus RTU at 115200 8N1.
+  baud_rate: 115200
+  rx_pin: ${rx_pin}
+  tx_pin: ${tx_pin}
+  # The parameter block reply is 187 bytes.
+  rx_buffer_size: 512
+
+eg4_modbus:
+  id: service0
+  uart_id: uart_service
+  mode: active
+
+eg4_bms:
+  - id: pack
+    # The service port only answers at the pack's DIP ID, which must be 1.
+    address: 1
+    eg4_modbus_id: service0
+    update_interval: 5s
+
+binary_sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    online_status:
+      name: "online"
+    heating:
+      name: "heating"
+
+text_sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    status:
+      name: "status"
+    warnings:
+      name: "warnings"
+    protection:
+      name: "protection"
+    model:
+      name: "BMS model"
+    firmware_version:
+      name: "BMS firmware"
+    serial_number:
+      name: "BMS serial number"
+    # Reading the clock or any setting below enables the parameter block poll
+    # (at startup, then every 30 updates).
+    bms_time:
+      name: "BMS clock"
+
+sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    total_voltage:
+      name: "voltage"
+    current:
+      name: "current"
+    state_of_charge:
+      name: "state of charge"
+    state_of_health:
+      name: "state of health"
+    remaining_capacity:
+      name: "remaining capacity"
+    full_capacity:
+      name: "full capacity"
+    cycle_count:
+      name: "cycle count"
+    min_cell_voltage:
+      name: "min cell voltage"
+    max_cell_voltage:
+      name: "max cell voltage"
+    max_temperature:
+      name: "max temperature"
+
+    # Parameter block (RS232 service port only)
+    balance_start_voltage:
+      name: "balance start voltage"
+    balance_delta_voltage:
+      name: "balance delta voltage"
+    low_capacity_warning:
+      name: "low capacity warning"
+    cell_undervoltage_warning:
+      name: "cell undervoltage warning"
+    cell_undervoltage_protection:
+      name: "cell undervoltage protection"
+    cell_undervoltage_release:
+      name: "cell undervoltage release"
+    pack_undervoltage_warning:
+      name: "pack undervoltage warning"
+    pack_undervoltage_protection:
+      name: "pack undervoltage protection"
+    pack_undervoltage_release:
+      name: "pack undervoltage release"
+    cell_overvoltage_warning:
+      name: "cell overvoltage warning"
+    cell_overvoltage_protection:
+      name: "cell overvoltage protection"
+    cell_overvoltage_release:
+      name: "cell overvoltage release"
+    pack_overvoltage_warning:
+      name: "pack overvoltage warning"
+    pack_overvoltage_protection:
+      name: "pack overvoltage protection"
+    pack_overvoltage_release:
+      name: "pack overvoltage release"
+    charge_overcurrent_count:
+      name: "charge overcurrent count"
+    discharge_overcurrent_count:
+      name: "discharge overcurrent count"
+    charge_overcurrent_release_time:
+      name: "charge overcurrent release time"
+    discharge_overcurrent_release_time:
+      name: "discharge overcurrent release time"
+    charge_overcurrent_1_protection:
+      name: "charge overcurrent 1 protection"
+    discharge_overcurrent_1_protection:
+      name: "discharge overcurrent 1 protection"
+    short_circuit_current:
+      name: "short circuit current"
+    charge_overcurrent_2_protection:
+      name: "charge overcurrent 2 protection"
+    discharge_overcurrent_2_protection:
+      name: "discharge overcurrent 2 protection"
+    charge_overcurrent_1_delay:
+      name: "charge overcurrent 1 delay"
+    charge_overcurrent_2_delay:
+      name: "charge overcurrent 2 delay"
+    discharge_overcurrent_1_delay:
+      name: "discharge overcurrent 1 delay"
+    discharge_overcurrent_2_delay:
+      name: "discharge overcurrent 2 delay"
+    charge_undertemp_warning:
+      name: "charge under-temperature warning"
+    charge_undertemp_protection:
+      name: "charge under-temperature protection"
+    charge_undertemp_release:
+      name: "charge under-temperature release"
+    charge_overtemp_warning:
+      name: "charge over-temperature warning"
+    charge_overtemp_protection:
+      name: "charge over-temperature protection"
+    charge_overtemp_release:
+      name: "charge over-temperature release"
+    discharge_undertemp_warning:
+      name: "discharge under-temperature warning"
+    discharge_undertemp_protection:
+      name: "discharge under-temperature protection"
+    discharge_undertemp_release:
+      name: "discharge under-temperature release"
+    discharge_overtemp_warning:
+      name: "discharge over-temperature warning"
+    discharge_overtemp_protection:
+      name: "discharge over-temperature protection"
+    discharge_overtemp_release:
+      name: "discharge over-temperature release"
+    mos_overtemp_warning:
+      name: "MOSFET over-temperature warning"
+    mos_overtemp_protection:
+      name: "MOSFET over-temperature protection"
+    mos_overtemp_release:
+      name: "MOSFET over-temperature release"
+    heater_on_temperature:
+      name: "heater on temperature"
+    heater_off_temperature:
+      name: "heater off temperature"
+    ambient_undertemp_warning:
+      name: "ambient under-temperature warning"
+    ambient_undertemp_protection:
+      name: "ambient under-temperature protection"
+    ambient_undertemp_release:
+      name: "ambient under-temperature release"
+    ambient_overtemp_warning:
+      name: "ambient over-temperature warning"
+    ambient_overtemp_protection:
+      name: "ambient over-temperature protection"
+    ambient_overtemp_release:
+      name: "ambient over-temperature release"

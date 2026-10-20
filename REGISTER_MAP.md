@@ -33,31 +33,27 @@ capture of the link master's `0x00` x45 poll.
 
 ### Configuration/Threshold Registers (0x002D - 0x0087)
 
-Based on analysis of Modbus response from request starting at 0x002D (91 registers total).
+Read with FC03 0x002D x91 (0x5B), as the vendor BMS tool does. **Only the pack's
+RS232 service port serves this block** (Modbus RTU 115200 8N1, pack at DIP ID 1,
+no other pack on its paralleling ports). On the EG4-LL paralleling bus the Z02
+firmware answers the same read with every threshold register zero (the clock
+and the model/firmware/serial text are still filled in). `eg4_bms` exposes the
+thresholds as diagnostic sensors (`SETTINGS` in `components/eg4_bms/sensor.py`)
+and drops an all-zero threshold block instead of publishing it.
+
+Temperatures in this block are stored as °C + 50. Values below are from a
+ZTR-16S200A (S02T11) pack on 2026-10-20.
 
 #### Real-Time Clock (RTC) / Timestamp
 
-Format: YYYY-MM-DD HH:MM:SS
-
-- **0x002D (45)**: Year + Month
-  - High byte: Year = value + 1922 (e.g., 103 + 1922 = 2025)
-  - Low byte: Month = value - 5 (e.g., 17 - 5 = 12)
-  
-- **0x002E (46)**: Hour + Minute
-  - High byte: Hour in BCD format (e.g., 0x17 BCD = 17)
-  - Low byte: Minute = value - 110 (e.g., 140 - 110 = 30)
-  
-- **0x002F (47)**: Unused + Day
-  - High byte: 0 (unused)
-  - Low byte: Day (e.g., 8)
-  
-- **0x0030 (48)**: Second + Unknown
-  - High byte: Second = value - 5 (e.g., 17 - 5 = 12)
-  - Low byte: Unknown (possibly subseconds or status)
+- **0x002D-0x002E**: packed 32-bit clock, high word first. Not Unix time:
+  `year-2000 << 26 | month << 22 | day << 17 | hour << 12 | minute << 6 | second`.
+  Published as the `bms_time` text sensor (`YYYY-MM-DD HH:MM:SS`).
+- **0x002F-0x0037**: unknown (8, 4500, 0, 0, 0, 0, 0, 0, 1).
 
 #### Balancing Configuration
 - **0x0038 (56)**: Balance Voltage - 3400 mV (3.400V)
-- **0x0039 (57)**: Balance Diff - 40 mV (0.040V) [Note: GUI shows 20?]
+- **0x0039 (57)**: Balance Diff - 20 mV (0.020V) (mV inferred)
 - **0x003A (58)**: Low Capacity Warning - 10 (Ah or %)
 
 #### Cell Under-Voltage Thresholds (mV units, 1mV resolution)
@@ -65,7 +61,7 @@ Format: YYYY-MM-DD HH:MM:SS
 - **0x003E (62)**: Cell UV Protection - 2300 mV (2.300V)  
 - **0x003F (63)**: Cell UV Release - 3100 mV (3.100V)
 
-#### Pack Under-Voltage Thresholds (0.1V units, 100mV resolution)
+#### Pack Under-Voltage Thresholds (10 mV units)
 - **0x0040 (64)**: Pack UV Warning - 4650 (46.50V)
 - **0x0041 (65)**: Pack UV Protection - 4480 (44.80V)
 - **0x0042 (66)**: Pack UV Release - 4800 (48.00V)
@@ -75,7 +71,7 @@ Format: YYYY-MM-DD HH:MM:SS
 - **0x0044 (68)**: Cell OV Protection - 3800 mV (3.800V)
 - **0x0045 (69)**: Cell OV Release - 3450 mV (3.450V)
 
-#### Pack Over-Voltage Thresholds (0.1V units, 100mV resolution)
+#### Pack Over-Voltage Thresholds (10 mV units)
 - **0x0046 (70)**: Pack OV Warning - 5920 (59.20V)
 - **0x0047 (71)**: Pack OV Protection - 6000 (60.00V)
 - **0x0048 (72)**: Pack OV Release - 5520 (55.20V)

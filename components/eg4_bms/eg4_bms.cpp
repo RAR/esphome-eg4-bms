@@ -75,6 +75,10 @@ void EG4Bms::dump_config() {
   LOG_SENSOR("  ", "Power", this->power_sensor_);
   LOG_SENSOR("  ", "State of Charge", this->state_of_charge_sensor_);
   LOG_TEXT_SENSOR("  ", "Status", this->status_text_sensor_);
+  if (this->read_settings_) {
+    ESP_LOGCONFIG(TAG, "  Parameter block: read every 30 updates (%u setting sensors)",
+                  (unsigned) this->setting_sensors_.size());
+  }
 }
 
 float EG4Bms::get_setup_priority() const { return setup_priority::DATA; }
@@ -133,6 +137,12 @@ void EG4Bms::update() {
     this->text_request_step_ = (this->text_request_step_ + 1) % 3;
   }
 
+  // The parameter block changes only when someone writes it, so read it at
+  // startup and then as rarely as the text blocks.
+  if (this->read_settings_ && (this->update_counter_ % 30) == 0) {
+    this->send(FUNCTION_READ_HOLDING, REG_SETTINGS, SETTINGS_REGISTERS);
+  }
+
   this->update_counter_++;
 }
 
@@ -183,8 +193,7 @@ void EG4Bms::on_modbus_block(uint8_t address, uint8_t function, uint16_t start_r
   ESP_LOGD(TAG, "Received block: start=0x%04X registers=%u", start_register, (unsigned) count);
 
   if (!overlaps(start_register, count, REG_VOLTAGE, REG_REALTIME_LAST) &&
-      !overlaps(start_register, count, REG_MODEL, REG_MODEL + MODEL_REGISTERS - 1) &&
-      !overlaps(start_register, count, REG_FW_VERSION, REG_SERIAL_NO + SERIAL_NO_REGISTERS - 1)) {
+      !overlaps(start_register, count, REG_SETTINGS, REG_SETTINGS_LAST)) {
     ESP_LOGW(TAG, "BMS 0x%02X: unrecognised block 0x%04X x%u", this->address_, start_register, (unsigned) count);
     return;
   }
@@ -194,6 +203,23 @@ void EG4Bms::on_modbus_block(uint8_t address, uint8_t function, uint16_t start_r
   }
 
   this->store_block_(start_register, data, len);
+
+  // The EG4-LL paralleling bus answers the parameter block with every
+  // threshold zero; publishing those would report 0 V protection limits.
+  // Keep the clock and text registers, drop the thresholds.
+  if (thresholds_blank(start_register, data, len)) {
+    for (size_t i = 0; i < count; i++) {
+      if (is_threshold_register(start_register + i))
+        this->pending_.reset(start_register + i);
+    }
+    if (!this->blank_settings_logged_) {
+      ESP_LOGW(TAG,
+               "BMS 0x%02X: parameter block reads all zero - this port does not serve the settings "
+               "(use the RS232 service port)",
+               this->address_);
+      this->blank_settings_logged_ = true;
+    }
+  }
 
   if (!this->is_passive()) {
     this->publish_pending_();
@@ -453,6 +479,21 @@ void EG4Bms::publish_pending_() {
   }
   if (has(REG_SERIAL_NO, REG_SERIAL_NO + SERIAL_NO_REGISTERS - 1)) {
     this->publish_state_(this->serial_number_text_sensor_, text(REG_SERIAL_NO, SERIAL_NO_REGISTERS));
+  }
+
+  // BMS clock (registers 0x002D-0x002E) - packed date/time, see format_bms_time()
+  if (has(REG_BMS_TIME, REG_BMS_TIME + 1)) {
+    char buf[24];
+    if (format_bms_time(reg32(REG_BMS_TIME), buf, sizeof(buf))) {
+      this->publish_state_(this->bms_time_text_sensor_, std::string(buf));
+    }
+  }
+
+  // Parameter block thresholds (registers 0x002F-0x0087)
+  for (const auto &setting : this->setting_sensors_) {
+    if (setting.reg < REGISTER_IMAGE_SIZE && this->pending_.test(setting.reg)) {
+      this->publish_state_(setting.sensor, reg(setting.reg) * setting.multiplier + setting.offset);
+    }
   }
 
   this->pending_.reset();

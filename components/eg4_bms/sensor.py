@@ -85,6 +85,81 @@ CONF_REJECTED_FRAME_COUNT = "rejected_frame_count"
 
 UNIT_AMPERE_HOURS = "Ah"
 
+# Parameter block (FC03 0x2D x91), served only on the pack's RS232 service port
+# (115200 8N1, pack at DIP ID 1 with no other pack on its paralleling ports).
+# key: (register, multiplier, offset, unit, device_class, accuracy_decimals)
+# Published value = raw * multiplier + offset. Thresholds come in warning /
+# protection / release triples. Temperatures are stored as degC + 50. Units
+# marked "inferred" in REGISTER_MAP.md were not confirmed by the BMS tool;
+# counts and delays are published raw. Kept a pure literal so the host test
+# (tests/settings_table_test.py) can read it without ESPHome.
+SETTINGS = {
+    "balance_start_voltage": (0x38, 0.001, 0, "V", "voltage", 3),
+    "balance_delta_voltage": (0x39, 0.001, 0, "V", "voltage", 3),
+    "low_capacity_warning": (0x3A, 1, 0, "%", None, 0),
+    "cell_undervoltage_warning": (0x3D, 0.001, 0, "V", "voltage", 3),
+    "cell_undervoltage_protection": (0x3E, 0.001, 0, "V", "voltage", 3),
+    "cell_undervoltage_release": (0x3F, 0.001, 0, "V", "voltage", 3),
+    "pack_undervoltage_warning": (0x40, 0.01, 0, "V", "voltage", 2),
+    "pack_undervoltage_protection": (0x41, 0.01, 0, "V", "voltage", 2),
+    "pack_undervoltage_release": (0x42, 0.01, 0, "V", "voltage", 2),
+    "cell_overvoltage_warning": (0x43, 0.001, 0, "V", "voltage", 3),
+    "cell_overvoltage_protection": (0x44, 0.001, 0, "V", "voltage", 3),
+    "cell_overvoltage_release": (0x45, 0.001, 0, "V", "voltage", 3),
+    "pack_overvoltage_warning": (0x46, 0.01, 0, "V", "voltage", 2),
+    "pack_overvoltage_protection": (0x47, 0.01, 0, "V", "voltage", 2),
+    "pack_overvoltage_release": (0x48, 0.01, 0, "V", "voltage", 2),
+    "charge_overcurrent_count": (0x4C, 1, 0, None, None, 0),
+    "discharge_overcurrent_count": (0x4D, 1, 0, None, None, 0),
+    "charge_overcurrent_release_time": (0x4E, 1, 0, None, None, 0),
+    "discharge_overcurrent_release_time": (0x4F, 1, 0, None, None, 0),
+    "charge_overcurrent_1_protection": (0x50, 0.01, 0, "A", "current", 1),
+    "discharge_overcurrent_1_protection": (0x51, 0.01, 0, "A", "current", 1),
+    "short_circuit_current": (0x52, 0.01, 0, "A", "current", 1),
+    "charge_overcurrent_2_protection": (0x53, 0.01, 0, "A", "current", 1),
+    "discharge_overcurrent_2_protection": (0x54, 0.01, 0, "A", "current", 1),
+    "charge_overcurrent_1_delay": (0x55, 1, 0, None, None, 0),
+    "charge_overcurrent_2_delay": (0x56, 1, 0, None, None, 0),
+    "discharge_overcurrent_1_delay": (0x57, 1, 0, None, None, 0),
+    "discharge_overcurrent_2_delay": (0x58, 1, 0, None, None, 0),
+    "charge_undertemp_warning": (0x5A, 1, -50, "°C", "temperature", 0),
+    "charge_undertemp_protection": (0x5B, 1, -50, "°C", "temperature", 0),
+    "charge_undertemp_release": (0x5C, 1, -50, "°C", "temperature", 0),
+    "charge_overtemp_warning": (0x5D, 1, -50, "°C", "temperature", 0),
+    "charge_overtemp_protection": (0x5E, 1, -50, "°C", "temperature", 0),
+    "charge_overtemp_release": (0x5F, 1, -50, "°C", "temperature", 0),
+    "discharge_undertemp_warning": (0x60, 1, -50, "°C", "temperature", 0),
+    "discharge_undertemp_protection": (0x61, 1, -50, "°C", "temperature", 0),
+    "discharge_undertemp_release": (0x62, 1, -50, "°C", "temperature", 0),
+    "discharge_overtemp_warning": (0x63, 1, -50, "°C", "temperature", 0),
+    "discharge_overtemp_protection": (0x64, 1, -50, "°C", "temperature", 0),
+    "discharge_overtemp_release": (0x65, 1, -50, "°C", "temperature", 0),
+    "mos_overtemp_warning": (0x66, 1, -50, "°C", "temperature", 0),
+    "mos_overtemp_protection": (0x67, 1, -50, "°C", "temperature", 0),
+    "mos_overtemp_release": (0x68, 1, -50, "°C", "temperature", 0),
+    "heater_on_temperature": (0x80, 1, -50, "°C", "temperature", 0),
+    "heater_off_temperature": (0x81, 1, -50, "°C", "temperature", 0),
+    "ambient_undertemp_warning": (0x82, 1, -50, "°C", "temperature", 0),
+    "ambient_undertemp_protection": (0x83, 1, -50, "°C", "temperature", 0),
+    "ambient_undertemp_release": (0x84, 1, -50, "°C", "temperature", 0),
+    "ambient_overtemp_warning": (0x85, 1, -50, "°C", "temperature", 0),
+    "ambient_overtemp_protection": (0x86, 1, -50, "°C", "temperature", 0),
+    "ambient_overtemp_release": (0x87, 1, -50, "°C", "temperature", 0),
+}
+
+
+def setting_schema(unit, device_class, accuracy):
+    kwargs = {
+        "accuracy_decimals": accuracy,
+        "entity_category": ENTITY_CATEGORY_DIAGNOSTIC,
+    }
+    if unit is not None:
+        kwargs["unit_of_measurement"] = unit
+    if device_class is not None:
+        kwargs["device_class"] = device_class
+    return sensor.sensor_schema(**kwargs)
+
+
 CELL_VOLTAGE_SCHEMA = sensor.sensor_schema(
     unit_of_measurement=UNIT_VOLT,
     accuracy_decimals=3,
@@ -100,6 +175,11 @@ TEMPERATURE_SCHEMA = sensor.sensor_schema(
 )
 
 CONFIG_SCHEMA = EG4_BMS_COMPONENT_SCHEMA.extend(
+    {
+        cv.Optional(key): setting_schema(unit, device_class, accuracy)
+        for key, (_, _, _, unit, device_class, accuracy) in SETTINGS.items()
+    }
+).extend(
     {
         # Voltage sensors
         cv.Optional(CONF_TOTAL_VOLTAGE): sensor.sensor_schema(
@@ -369,3 +449,10 @@ async def to_code(config):
     if CONF_REJECTED_FRAME_COUNT in config:
         sens = await sensor.new_sensor(config[CONF_REJECTED_FRAME_COUNT])
         cg.add(hub.set_rejected_frame_count_sensor(sens))
+
+    # Parameter block
+    for key, (register, multiplier, offset, _, _, _) in SETTINGS.items():
+        if key in config:
+            sens = await sensor.new_sensor(config[key])
+            cg.add(hub.add_setting_sensor(register, multiplier, offset, sens))
+            cg.add(hub.set_read_settings(True))

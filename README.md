@@ -216,6 +216,65 @@ Notes from the bus:
 - While a pack is master it does not answer requests on the link, so with a
   pack master present use passive mode instead.
 
+### RS232 Service Port Mode
+
+The pack's RS232 service port is the port the vendor BMS tool uses. It runs
+Modbus RTU at **115200 8N1** and is the only port that serves the full
+parameter block (FC03 `0x2D` x91): protection thresholds, balancing, heater
+and the BMS clock. The paralleling bus answers the same read with zeros. It
+also reports the underlying BMS identity (for example `ZTR-16S200A-10KW-STD2`
+/ `S02T11` where the paralleling bus says `LFP-51.2V280Ah-V1.0` / `Z02T03`).
+
+The port only answers when the pack is set to **DIP ID 1**, **no other pack is
+plugged into its paralleling ports**, and you use the same RJ45 port as the BMS
+tool's cable. Treat it as a service setup for one pack at a time. Reads only
+for now; writing settings is not implemented yet.
+
+It is plain `active` mode at address 1 on an RS232 transceiver, for example an
+AtomS3 Lite with the Atomic RS232 base (TX GPIO6, RX GPIO5). See
+[`atoms3-rs232-service-example.yaml`](atoms3-rs232-service-example.yaml) for
+every setting sensor.
+
+```yaml
+uart:
+  id: uart_service
+  baud_rate: 115200
+  rx_pin: GPIO5
+  tx_pin: GPIO6
+  rx_buffer_size: 512  # the parameter block reply is 187 bytes
+
+eg4_modbus:
+  id: service0
+  uart_id: uart_service
+
+eg4_bms:
+  - id: pack
+    address: 1
+    eg4_modbus_id: service0
+
+text_sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    bms_time:
+      name: "BMS clock"
+
+sensor:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    cell_overvoltage_protection:
+      name: "cell overvoltage protection"
+    pack_undervoltage_protection:
+      name: "pack undervoltage protection"
+    charge_overcurrent_1_protection:
+      name: "charge overcurrent protection"
+```
+
+Configuring `bms_time` or any setting sensor makes `eg4_bms` read the
+parameter block at startup and then every 30 updates. Wiring: base TX to the
+pack's RXD (the line the BMS tool transmits on), base RX to the pack's TXD
+(idles about -5 V against ground), base GND to signal ground. Swap TX and RX
+if nothing decodes.
+
 ## Configuration Variables
 
 ### `eg4_modbus`
@@ -339,6 +398,19 @@ what the pack is actually doing.
 - `model` - BMS model number
 - `firmware_version` - BMS firmware version
 - `serial_number` - BMS serial number
+- `bms_time` - BMS clock, from the parameter block (RS232 service port only)
+
+### Setting Sensors (RS232 service port only)
+
+Diagnostic sensors for the parameter block, one per register: `balance_start_voltage`,
+`balance_delta_voltage`, `low_capacity_warning`, cell/pack under- and
+over-voltage `_warning` / `_protection` / `_release`, charge/discharge
+overcurrent stages, delays, counts and release times, `short_circuit_current`,
+charge/discharge/MOSFET/ambient under- and over-temperature triples, and
+`heater_on_temperature` / `heater_off_temperature`. The full list with
+registers and scaling is the `SETTINGS` table in
+`components/eg4_bms/sensor.py`. Counts, delays and release times are published
+raw (their units are not confirmed).
 
 ## Status Codes
 
@@ -471,6 +543,11 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 ### Unreleased
 
 **Changes**
+- RS232 service port support: 51 parameter block sensors and a `bms_time`
+  text sensor, read from FC03 `0x2D` x91 at 115200 on a lone DIP-ID-1 pack;
+  an all-zero threshold block (paralleling bus) is dropped instead of
+  published; `atoms3-rs232-service-example.yaml`; host tests against a real
+  reply (`tests/rs232_service_test.cpp`, `tests/settings_table_test.py`)
 - Add `mode: passive` to `eg4_modbus`: listen-only decoding of the EG4-LL
   pack-to-pack link, with a structural/CRC frame splitter and the
   `atoms3-link-passive-example.yaml` example
