@@ -3,7 +3,14 @@
 # The pack's RS232 service port is where the vendor BMS tool reads and writes
 # the BMS settings. It runs Modbus RTU at 115200 8N1 and serves the full
 # parameter block (FC03 0x2D x91: protection thresholds, balancing, heater,
-# BMS clock), which the paralleling bus answers with zeros. Reads only for now.
+# BMS clock), which the paralleling bus answers with zeros.
+#
+# Every setting is a number entity: it shows what the BMS reports and writes
+# the BMS when changed. Writes are refused unless the "allow settings writes"
+# switch is on (it always boots off), the block has been read, the value is in
+# range and the warning/protection/release order still holds. Each write is
+# re-read and logged as confirmed or NOT applied. These are the pack's
+# protection limits: change them only if you know why.
 #
 # The port answers only when:
 #   - the pack is set to DIP ID 1, and
@@ -57,6 +64,14 @@ logger:
 # Enable Home Assistant API
 api:
 
+# The clock sync button writes this time to the BMS clock. The BMS tool sets
+# it to local time; set your zone here, or ESPHome uses the timezone of the
+# machine that compiles the firmware (often UTC on a server or container).
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: America/New_York
+
 uart:
   id: uart_service
   # The service port runs Modbus RTU at 115200 8N1.
@@ -101,8 +116,8 @@ text_sensor:
       name: "BMS firmware"
     serial_number:
       name: "BMS serial number"
-    # Reading the clock or any setting below enables the parameter block poll
-    # (at startup, then every 30 updates).
+    # Reading the clock or any setting enables the parameter block poll (at
+    # startup, then every 30 updates).
     bms_time:
       name: "BMS clock"
 
@@ -130,7 +145,24 @@ sensor:
     max_temperature:
       name: "max temperature"
 
-    # Parameter block (RS232 service port only)
+switch:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    allow_settings_writes:
+      name: "allow settings writes"
+
+button:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    sync_clock:
+      name: "sync BMS clock"
+      time_id: ha_time
+
+# Parameter block settings (RS232 service port only). Use the sensor platform
+# with the same keys instead for read-only entities.
+number:
+  - platform: eg4_bms
+    eg4_bms_id: pack
     balance_start_voltage:
       name: "balance start voltage"
     balance_delta_voltage:

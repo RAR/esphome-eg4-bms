@@ -41,6 +41,16 @@ inline bool thresholds_blank(uint16_t start_register, const uint8_t *data, size_
   return covered;
 }
 
+// BMS clock: packs a calendar time; 0 if a field is out of range.
+inline uint32_t pack_bms_time(unsigned year, unsigned month, unsigned day, unsigned hour, unsigned minute,
+                              unsigned second) {
+  if (year < 2000 || year > 2063 || month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 ||
+      second > 59)
+    return 0;
+  return (uint32_t(year - 2000) << 26) | (uint32_t(month) << 22) | (uint32_t(day) << 17) | (uint32_t(hour) << 12) |
+         (uint32_t(minute) << 6) | uint32_t(second);
+}
+
 // BMS clock: year-2000 << 26 | month << 22 | day << 17 | hour << 12 | min << 6 | sec.
 // Not Unix time. Writes "YYYY-MM-DD HH:MM:SS"; false if a field is out of range.
 inline bool format_bms_time(uint32_t packed, char *buf, size_t len) {

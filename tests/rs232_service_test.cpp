@@ -139,6 +139,35 @@ static void test_blocks(const std::map<uint16_t, std::vector<uint8_t>> &blocks) 
   CHECK(std::strcmp(buf, "2026-10-20 11:25:45") == 0);
 }
 
+// The BMS tool's own writes (bms_sw/write temp.txt): one FC16 per register, the
+// BMS echoes start and quantity.
+static void test_tool_writes() {
+  std::vector<uint8_t> bytes = hex_to_bytes("011000380001020D48A64E0110003800018004");
+  FrameSplitter splitter;
+  RequestTracker tracker;
+  splitter.push(bytes.data(), bytes.size());
+  Frame f;
+  int requests = 0, acks = 0;
+  while (splitter.next(f, true)) {
+    uint16_t start = MODBUS_START_REGISTER_UNKNOWN;
+    const bool paired = tracker.pair(f, &start);
+    if (f.type == FrameType::WRITE_REQUEST) {
+      requests++;
+      CHECK(f.start_register == 0x38);
+      CHECK(f.quantity == 1);
+    } else if (f.type == FrameType::WRITE_RESPONSE) {
+      acks++;
+      CHECK(paired);
+      CHECK(start == 0x38);
+    }
+  }
+  CHECK(requests == 1);
+  CHECK(acks == 1);
+
+  // The tool's clock write: 01 10 00 2D 00 02 04 67 11 07 FA.
+  CHECK(pack_bms_time(2025, 12, 8, 16, 31, 58) == 0x671107FAu);
+}
+
 static void test_time() {
   char buf[24];
   // 2025-12-08 16:31:58, the sample in the BMS tool's own log.
@@ -147,12 +176,23 @@ static void test_time() {
   // Month 0 / a zeroed clock is not a time.
   CHECK(!format_bms_time(0, buf, sizeof(buf)));
   CHECK(!format_bms_time((25u << 26) | (13u << 22) | (1u << 17), buf, sizeof(buf)));
+
+  // pack/format round trip, and pack refuses what format would reject.
+  const uint32_t packed = pack_bms_time(2026, 10, 20, 23, 59, 7);
+  CHECK(packed != 0);
+  CHECK(format_bms_time(packed, buf, sizeof(buf)));
+  CHECK(std::strcmp(buf, "2026-10-20 23:59:07") == 0);
+  CHECK(pack_bms_time(1999, 1, 1, 0, 0, 0) == 0);
+  CHECK(pack_bms_time(2064, 1, 1, 0, 0, 0) == 0);
+  CHECK(pack_bms_time(2026, 0, 1, 0, 0, 0) == 0);
+  CHECK(pack_bms_time(2026, 1, 1, 24, 0, 0) == 0);
 }
 
 int main(int argc, char **argv) {
   const char *path = argc > 1 ? argv[1] : "rs232_service_frames.txt";
   test_blocks(blocks_by_start(load_capture(path)));
   test_time();
+  test_tool_writes();
   if (failures) {
     std::printf("FAILED: %d check(s)\n", failures);
     return 1;

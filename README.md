@@ -227,8 +227,7 @@ also reports the underlying BMS identity (for example `ZTR-16S200A-10KW-STD2`
 
 The port only answers when the pack is set to **DIP ID 1**, **no other pack is
 plugged into its paralleling ports**, and you use the same RJ45 port as the BMS
-tool's cable. Treat it as a service setup for one pack at a time. Reads only
-for now; writing settings is not implemented yet.
+tool's cable. Treat it as a service setup for one pack at a time.
 
 It is plain `active` mode at address 1 on an RS232 transceiver, for example an
 AtomS3 Lite with the Atomic RS232 base (TX GPIO6, RX GPIO5). See
@@ -269,8 +268,71 @@ sensor:
       name: "charge overcurrent protection"
 ```
 
-Configuring `bms_time` or any setting sensor makes `eg4_bms` read the
-parameter block at startup and then every 30 updates. Wiring: base TX to the
+Configuring `bms_time` or any setting sensor or number makes `eg4_bms` read
+the parameter block at startup and then every 30 updates.
+
+#### Writing settings
+
+Every setting is also available on the `number` platform (same keys as the
+sensors). A number shows what the BMS reports and writes the BMS when you
+change it, the same way the BMS tool does: one FC16 per register, then a
+re-read of the block. These are the pack's protection limits; the BMS checks
+nothing itself, so the component refuses a write unless:
+
+- the `allow_settings_writes` switch is on (it always boots off, and turning
+  it off cancels any write still queued);
+- the parameter block has been read from this BMS since it last came online
+  (going offline, a different serial number or a blank read forgets it);
+- the value is within the number's range (`LIMITS` in
+  `components/eg4_bms/settings_table.py`). No range lets a protection go past
+  what the pack ships with: cell OV 3.80 V, cell UV 2.30 V, 300 A, charge OT
+  70 °C, discharge OT 75 °C, MOSFET OT 110 °C, charge UT no lower than -10 °C;
+- the order rules still hold (`ORDER`), counting writes still in flight:
+  over-limit triples need release < warning < protection, under-limit triples
+  protection < warning < release, heater on < off, over-current stage 1 <=
+  stage 2 <= short circuit, cell UV release < cell OV release and balance
+  start < cell OV warning.
+
+Numbers default to `mode: box`, so a slider drag cannot write a limit. A write
+still queued after 5 s is dropped rather than sent late.
+
+A refused write is logged and the number snaps back to the BMS's value. After
+each write the log says `confirmed` or `NOT applied` from the read-back. To
+move a whole triple, change the values in an order that keeps it valid at
+every step (for example raise protection before warning).
+
+The `sync_clock` button writes the ESP's local time to the BMS clock. Set
+`timezone:` on the `time` component; otherwise ESPHome uses the timezone of the
+machine that compiles the firmware.
+
+```yaml
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: America/New_York
+
+switch:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    allow_settings_writes:
+      name: "allow settings writes"
+
+button:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    sync_clock:
+      name: "sync BMS clock"
+      time_id: ha_time
+
+number:
+  - platform: eg4_bms
+    eg4_bms_id: pack
+    cell_overvoltage_protection:
+      name: "cell overvoltage protection"
+```
+
+The BMS tool's "Restore Factory" is not offered: it only writes a fixed table
+of defaults (including 62 A over-current limits) that may not match your pack. Wiring: base TX to the
 pack's RXD (the line the BMS tool transmits on), base RX to the pack's TXD
 (idles about -5 V against ground), base GND to signal ground. Swap TX and RX
 if nothing decodes.
@@ -543,6 +605,14 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 ### Unreleased
 
 **Changes**
+- Settings writes on the RS232 service port: `number` entities for all 51
+  settings, an `allow_settings_writes` switch (always boots off) and a
+  `sync_clock` button; range limits capped at the shipped protections,
+  strict warning/protection/release order checks (including writes in
+  flight), FC16 one register per frame like the BMS tool, re-read and verify
+  after the acknowledgement; queued writes are cancelled when writes are
+  disabled or the BMS goes offline.
+  `eg4_modbus` can now queue FC16 writes and parse their acknowledgements.
 - RS232 service port support: 51 parameter block sensors and a `bms_time`
   text sensor, read from FC03 `0x2D` x91 at 115200 on a lone DIP-ID-1 pack;
   an all-zero threshold block (paralleling bus) is dropped instead of

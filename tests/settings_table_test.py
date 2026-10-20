@@ -1,11 +1,12 @@
-"""Checks components/eg4_bms/sensor.py's SETTINGS table against a real reply.
+"""Checks components/eg4_bms/settings_table.py against a real reply.
 
     make -C tests          # runs with the C++ tests
 
 Decodes the 0x2D x91 parameter block in rs232_service_frames.txt with the
 table exactly as the component does (raw * multiplier + offset) and compares
-the result with the values the vendor BMS tool shows for that pack. Reads the
-table with ast, so ESPHome is not needed.
+the result with the values the vendor BMS tool shows for that pack, and checks
+that the write LIMITS and ORDER rules accept the pack's own settings. Reads the
+tables with ast, so ESPHome is not needed.
 """
 
 import ast
@@ -13,7 +14,7 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-SENSOR_PY = HERE.parent / "components" / "eg4_bms" / "sensor.py"
+TABLE_PY = HERE.parent / "components" / "eg4_bms" / "settings_table.py"
 REG_SETTINGS, SETTINGS_REGISTERS = 0x2D, 0x5B
 
 EXPECTED = {
@@ -71,14 +72,14 @@ EXPECTED = {
 }
 
 
-def load_settings():
-    tree = ast.parse(SENSOR_PY.read_text(encoding="utf-8"))
+def load_table(name):
+    tree = ast.parse(TABLE_PY.read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "SETTINGS" for t in node.targets
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
         ):
             return ast.literal_eval(node.value)
-    raise SystemExit("SETTINGS not found in sensor.py")
+    raise SystemExit(f"{name} not found in settings_table.py")
 
 
 def load_parameter_block(path):
@@ -93,7 +94,9 @@ def load_parameter_block(path):
 
 
 def main():
-    settings = load_settings()
+    settings = load_table("SETTINGS")
+    limits = load_table("LIMITS")
+    order = load_table("ORDER")
     regs = load_parameter_block(HERE / "rs232_service_frames.txt")
     errors = []
 
@@ -116,12 +119,46 @@ def main():
         if abs(value - expected) > 1e-6:
             errors.append(f"{key}: decoded {value}, BMS tool shows {expected}")
 
+    decoded = {
+        key: regs[register - REG_SETTINGS] * multiplier + offset
+        for key, (register, multiplier, offset, *_rest) in settings.items()
+    }
+
+    if set(limits) != set(settings):
+        errors.append(f"LIMITS/SETTINGS keys differ: {sorted(set(limits) ^ set(settings))}")
+    for key, (low, high, step) in limits.items():
+        if key not in settings:
+            continue
+        _register, multiplier, offset, *_rest = settings[key]
+        if not low < high or step <= 0:
+            errors.append(f"{key}: bad limits {low}..{high} step {step}")
+        if not low - 1e-9 <= decoded[key] <= high + 1e-9:
+            errors.append(f"{key}: the pack's value {decoded[key]} is outside {low}..{high}")
+        # Every step must land on a whole register value.
+        ratio = step / multiplier
+        if abs(ratio - round(ratio)) > 1e-6:
+            errors.append(f"{key}: step {step} is not a multiple of the register scale {multiplier}")
+        for bound in (low, high):
+            raw = (bound - offset) / multiplier
+            if raw < 0 or raw > 0xFFFF:
+                errors.append(f"{key}: limit {bound} does not fit the register (raw {raw})")
+
+    for lower, upper, strict in order:
+        if lower not in settings or upper not in settings:
+            errors.append(f"ORDER: unknown setting in ({lower}, {upper})")
+            continue
+        if settings[lower][1:3] != settings[upper][1:3]:
+            errors.append(f"ORDER: ({lower}, {upper}) do not share a scale")
+        ok = decoded[lower] < decoded[upper] - 1e-9 if strict else decoded[lower] <= decoded[upper] + 1e-9
+        if not ok:
+            errors.append(f"ORDER: the pack has {lower}={decoded[lower]}, {upper}={decoded[upper]}")
+
     for error in errors:
         print(error, file=sys.stderr)
     if errors:
         print(f"FAILED: {len(errors)} check(s)")
         return 1
-    print(f"All settings table tests passed ({len(settings)} settings)")
+    print(f"All settings table tests passed ({len(settings)} settings, {len(order)} order rules)")
     return 0
 
 

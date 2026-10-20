@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/time.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
@@ -12,6 +13,13 @@
 
 namespace esphome {
 namespace eg4_bms {
+
+// Receives a setting's current value whenever the BMS reports it (the
+// number platform implements this).
+class SettingListener {
+ public:
+  virtual void on_setting_value(float value) = 0;
+};
 
 class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
  public:
@@ -112,6 +120,25 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   }
   void set_read_settings(bool read_settings) { read_settings_ = read_settings; }
 
+  // Writing settings (RS232 service port). Every write needs writes enabled
+  // (the write-enable switch), a parameter block read from the BMS, a value
+  // in range and the ordering rules still holding; it is then sent as one
+  // FC16 per register, like the BMS tool, and verified by re-reading the
+  // block.
+  void add_setting_number(uint16_t reg, float multiplier, float offset, float min_value, float max_value,
+                          SettingListener *listener) {
+    this->setting_numbers_.push_back({reg, multiplier, offset, min_value, max_value, listener});
+  }
+  // lower must stay <= upper, or < upper when strict.
+  void add_setting_order(uint16_t lower_reg, uint16_t upper_reg, bool strict) {
+    this->setting_order_.push_back({lower_reg, upper_reg, strict});
+  }
+  void set_writes_enabled(bool enabled);
+  bool get_writes_enabled() const { return writes_enabled_; }
+  // Returns false (and re-publishes the BMS's value) when the write is refused.
+  bool write_setting(uint16_t reg, float value);
+  bool write_clock(const ESPTime &time);
+
   void on_modbus_block(uint8_t address, uint8_t function, uint16_t start_register, const uint8_t *data,
                        size_t len) override;
 
@@ -185,6 +212,47 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   std::vector<SettingSensor> setting_sensors_;
   bool read_settings_{false};
   bool blank_settings_logged_{false};
+
+  struct SettingNumber {
+    uint16_t reg;
+    float multiplier;
+    float offset;
+    float min_value;
+    float max_value;
+    SettingListener *listener;
+  };
+  std::vector<SettingNumber> setting_numbers_;
+  struct SettingOrder {
+    uint16_t lower_reg;
+    uint16_t upper_reg;
+    bool strict;
+  };
+  std::vector<SettingOrder> setting_order_;
+  bool writes_enabled_{false};
+  // True once a parameter block with real thresholds has been stored, so
+  // registers_ holds the BMS's values for the ordering checks.
+  bool settings_seen_{false};
+  // Writes queued but not yet confirmed by a re-read. The ordering checks use
+  // these values over registers_ so two quick writes cannot together break
+  // an order neither breaks alone. Only acknowledged writes are verified (a
+  // read queued before the write would still show the old value); entries
+  // expire after WRITE_EXPIRY_MS.
+  struct ExpectedWrite {
+    uint16_t reg;
+    uint16_t value;
+    bool acked;
+    uint32_t queued_ms;
+  };
+  std::vector<ExpectedWrite> expected_writes_;
+  static const uint32_t WRITE_EXPIRY_MS = 10000;
+
+  void republish_setting_(uint16_t reg);
+  void verify_writes_(uint16_t start_register, size_t count);
+  void expire_writes_();
+  uint16_t effective_register_(uint16_t reg) const;
+  // Forgets the parameter block (offline, another pack, blank block) so no
+  // write is checked against values this BMS may not hold.
+  void forget_settings_(const char *why);
 
   struct Cell {
     sensor::Sensor *cell_voltage_sensor_{nullptr};
