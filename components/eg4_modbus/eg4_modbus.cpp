@@ -7,6 +7,20 @@ namespace eg4_modbus {
 
 static const char *const TAG = "eg4_modbus";
 
+std::string format_frame(const uint8_t *data, size_t length) {
+  static const char *const DIGITS = "0123456789ABCDEF";
+  std::string out;
+  out.reserve(length * 3 + 8);
+  for (size_t i = 0; i < length; i++) {
+    if (i > 0)
+      out += '.';
+    out += DIGITS[data[i] >> 4];
+    out += DIGITS[data[i] & 0x0F];
+  }
+  out += " (" + std::to_string(length) + ")";
+  return out;
+}
+
 static const uint8_t MODBUS_READ_HOLDING_REGISTERS = 0x03;
 static const uint8_t MODBUS_WRITE_MULTIPLE_REGISTERS = 0x10;
 
@@ -132,7 +146,7 @@ void EG4Modbus::send_next_request_() {
     this->flow_control_pin_->digital_write(false);
   }
 
-  ESP_LOGV(TAG, "Sent: %s", format_hex_pretty(frame, 8).c_str());
+  ESP_LOGV(TAG, "Sent: %s", format_frame(frame, 8).c_str());
   this->last_send_ = millis();
   this->waiting_for_response_ = true;
 }
@@ -187,7 +201,7 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
       return false;
     }
 
-    ESP_LOGV(TAG, "Received: %s", format_hex_pretty(raw, expected_len).c_str());
+    ESP_LOGV(TAG, "Received: %s", format_frame(raw, expected_len).c_str());
 
     // Dispatch to devices
     for (auto *device : this->devices_) {

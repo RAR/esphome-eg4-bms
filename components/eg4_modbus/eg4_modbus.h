@@ -3,11 +3,16 @@
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
 #include <queue>
+#include <string>
 
 namespace esphome {
 namespace eg4_modbus {
 
 class EG4ModbusDevice;
+
+// Bytes as "AA.BB.CC (3)" for the logs. Our own, so it builds on every ESPHome
+// version: ESPHome 2026.11 removed format_hex_pretty().
+std::string format_frame(const uint8_t *data, size_t length);
 
 struct ModbusRequest {
   uint8_t address;

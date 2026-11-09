@@ -347,7 +347,7 @@ bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
 void EG4Bms::reject_block_(const std::vector<uint8_t> &data, const char *reason) {
   this->rejected_frame_count_++;
   ESP_LOGW(TAG, "BMS 0x%02X: rejected %s (%u rejected so far): %s", this->address_, reason,
-           (unsigned) this->rejected_frame_count_, format_hex_pretty(data.data(), data.size()).c_str());
+           (unsigned) this->rejected_frame_count_, eg4_modbus::format_frame(data.data(), data.size()).c_str());
   this->publish_state_(this->rejected_frame_count_sensor_, (float) this->rejected_frame_count_);
 }
 
