@@ -362,6 +362,10 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 ## Changelog
 
+### v1.1.1 (2026-11-09)
+- Build on ESPHome 2026.11, which removed `format_hex_pretty()`: the frame logs use
+  the component's own formatter (same output)
+
 ### v1.1.0 (2026-08-10)
 
 **Breaking changes**
