@@ -368,7 +368,7 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 ## Changelog
 
-### Unreleased
+### v1.1.3 (2026-11-10)
 - Leave the bus quiet for `turnaround_time` (default 50 ms) after a reply before the
   next request. On a bus with several packs, a request sent within a few ms of
   another pack's reply was often not answered; v1.1.2's per-block tracking turned
