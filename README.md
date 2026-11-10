@@ -367,7 +367,7 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 ## Changelog
 
-### Unreleased
+### v1.1.2 (2026-11-10)
 - Track each data block on its own: the BMS goes offline when either block has
   had no valid reply for `max_no_response_count` of its polls, and that block's
   sensors publish NaN. Before, a valid capacity/SOC block kept a BMS online
