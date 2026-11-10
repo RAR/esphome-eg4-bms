@@ -167,7 +167,11 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
 
   uint8_t request_step_{0};
   uint8_t text_request_step_{0};
-  uint8_t no_response_count_{0};
+  // Per data block (0: electrical/cells, 1: capacity/SOC): that block's polls
+  // since it last came back valid, and whether its sensors were cleared for it.
+  // Both start stale, so the BMS is only online once each block has been read.
+  uint8_t no_response_count_[2]{0, 0};
+  bool block_stale_[2]{true, true};
   uint8_t max_no_response_count_{5};
   uint32_t update_counter_{0};
   uint32_t rejected_frame_count_{0};
@@ -176,15 +180,16 @@ class EG4Bms : public PollingComponent, public eg4_modbus::EG4ModbusDevice {
   void publish_state_(sensor::Sensor *sensor, float value);
   void publish_state_(text_sensor::TextSensor *text_sensor, const std::string &state);
   
-  // Returns false when the block was rejected as implausible, in which case no
-  // state was published and the online tracker must not be reset.
-  bool on_status_data_(const std::vector<uint8_t> &data);
+  // Returns the data block (0 or 1) that was published, or -1 for a text block
+  // or a block rejected as implausible, which must not mark the BMS online.
+  int on_status_data_(const std::vector<uint8_t> &data);
 
   void reject_block_(const std::vector<uint8_t> &data, const char *reason);
 
-  void reset_online_status_tracker_();
-  void track_online_status_();
-  void publish_device_unavailable_();
+  void poll_block_(uint8_t block);
+  void block_valid_(uint8_t block);
+  void clear_block_(uint8_t block);
+  void publish_online_status_();
   
   std::string extract_ascii_string_(const uint8_t *data, size_t length);
   std::string decode_status_(uint16_t status);

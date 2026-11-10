@@ -66,19 +66,8 @@ void EG4Bms::update() {
     this->publish_state_(this->rejected_frame_count_sensor_, 0.0f);
   }
 
-  if (this->no_response_count_ >= this->max_no_response_count_) {
-    this->publish_device_unavailable_();
-    ESP_LOGW(TAG, "No response from BMS (address 0x%02X)", this->address_);
-  }
-
-  this->track_online_status_();
-  // Saturate rather than wrap - an 8-bit counter left to overflow would flap a
-  // long-dead BMS back to "online" every 256 polls.
-  if (this->no_response_count_ < 255) {
-    this->no_response_count_++;
-  }
-
   // Always cycle through the two main register blocks
+  this->poll_block_(this->request_step_);
   switch (this->request_step_) {
     case 0:
       // Request main data block (voltage, current, cell voltages)
@@ -128,9 +117,8 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
 
   // Check for error response
   if ((function & 0x80) != 0) {
+    // An exception reply carries no data, so it refreshes neither block.
     ESP_LOGW(TAG, "Modbus error response: 0x%02X", data[2]);
-    // The BMS did answer, it just refused the request - it is still online.
-    this->reset_online_status_tracker_();
     return;
   }
 
@@ -147,14 +135,15 @@ void EG4Bms::on_modbus_data(const std::vector<uint8_t> &data) {
     return;
   }
 
-  // Only a block that survives plausibility validation counts as the BMS being
-  // online - an all-zero block must not refresh the tracker.
-  if (this->on_status_data_(data)) {
-    this->reset_online_status_tracker_();
+  // Only a block that survives plausibility validation refreshes its tracker -
+  // an all-zero block must not.
+  int block = this->on_status_data_(data);
+  if (block >= 0) {
+    this->block_valid_(block);
   }
 }
 
-bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
+int EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
   const uint8_t *payload = &data[3];  // Skip address, function, byte count
   size_t byte_count = data[2];
 
@@ -175,7 +164,7 @@ bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     // so the last good electrical values are retained.
     if (is_all_zero(payload, byte_count) || get_16bit(0) == 0) {
       this->reject_block_(data, "electrical/cell block with zero pack voltage");
-      return false;
+      return -1;
     }
 
     // Total voltage (register 0x0000) - 10mV units
@@ -237,7 +226,7 @@ bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
     if (is_all_zero(payload, byte_count) ||
         (get_16bit(6) == 0 && get_16bit(10) == 0 && get_16bit(38) == 0)) {
       this->reject_block_(data, "capacity/SOC block with zero capacity and SOH");
-      return false;
+      return -1;
     }
 
     // PCB/MOSFET temperature (register 0x0012) - °C, signed
@@ -335,13 +324,17 @@ bool EG4Bms::on_status_data_(const std::vector<uint8_t> &data) {
 
   } else {
     ESP_LOGW(TAG, "BMS 0x%02X: unrecognised block of %u bytes", this->address_, (unsigned) byte_count);
-    return false;
+    return -1;
   }
 
   // Only the two data blocks prove the BMS is measuring correctly. The text
   // blocks are served from static strings and keep answering even while a unit
   // is returning zeroed measurements, so they must not mark it online.
-  return byte_count == 0x24 || byte_count == 0x2A;
+  if (byte_count == 0x24)
+    return 0;
+  if (byte_count == 0x2A)
+    return 1;
+  return -1;
 }
 
 void EG4Bms::reject_block_(const std::vector<uint8_t> &data, const char *reason) {
@@ -472,19 +465,68 @@ void EG4Bms::publish_state_(text_sensor::TextSensor *text_sensor, const std::str
   }
 }
 
-void EG4Bms::reset_online_status_tracker_() {
-  this->no_response_count_ = 0;
-  this->publish_state_(this->online_status_binary_sensor_, true);
-}
-
-void EG4Bms::track_online_status_() {
-  if (this->no_response_count_ < this->max_no_response_count_) {
-    this->publish_state_(this->online_status_binary_sensor_, true);
+// Called as a block is requested. Each block is tracked on its own, so one
+// block that keeps failing takes the BMS offline even while the other answers.
+void EG4Bms::poll_block_(uint8_t block) {
+  if (this->no_response_count_[block] >= this->max_no_response_count_) {
+    if (this->no_response_count_[block] == this->max_no_response_count_) {
+      ESP_LOGW(TAG, "No valid %s block from BMS (address 0x%02X)", block == 0 ? "electrical/cell" : "capacity/SOC",
+               this->address_);
+    }
+    if (!this->block_stale_[block]) {
+      this->block_stale_[block] = true;
+      this->clear_block_(block);
+    }
+  }
+  this->publish_online_status_();
+  // Saturate rather than wrap - an 8-bit counter left to overflow would flap a
+  // long-dead BMS back to "online" every 256 polls.
+  if (this->no_response_count_[block] < 255) {
+    this->no_response_count_[block]++;
   }
 }
 
-void EG4Bms::publish_device_unavailable_() {
-  this->publish_state_(this->online_status_binary_sensor_, false);
+void EG4Bms::block_valid_(uint8_t block) {
+  this->no_response_count_[block] = 0;
+  this->block_stale_[block] = false;
+  this->publish_online_status_();
+}
+
+// A stale block's last values must not be taken for current ones, so its
+// sensors go to NaN (unknown) until the block is read again.
+void EG4Bms::clear_block_(uint8_t block) {
+  auto clear = [](sensor::Sensor *sensor) {
+    if (sensor != nullptr) {
+      sensor->publish_state(NAN);
+    }
+  };
+  if (block == 0) {
+    for (auto *s : {this->total_voltage_sensor_, this->current_sensor_, this->power_sensor_,
+                    this->charging_power_sensor_, this->discharging_power_sensor_, this->cell_count_sensor_,
+                    this->min_cell_voltage_sensor_, this->max_cell_voltage_sensor_, this->delta_cell_voltage_sensor_,
+                    this->cell_average_voltage_sensor_, this->min_voltage_cell_sensor_,
+                    this->max_voltage_cell_sensor_}) {
+      clear(s);
+    }
+    for (auto &cell : this->cells_) {
+      clear(cell.cell_voltage_sensor_);
+    }
+  } else {
+    for (auto *s : {this->pcb_temperature_sensor_, this->avg_temperature_sensor_, this->max_temperature_sensor_,
+                    this->remaining_capacity_sensor_, this->max_charge_current_sensor_,
+                    this->state_of_health_sensor_, this->state_of_charge_sensor_, this->warnings_bitmask_sensor_,
+                    this->protection_bitmask_sensor_, this->errors_bitmask_sensor_, this->cycle_count_sensor_,
+                    this->full_capacity_sensor_}) {
+      clear(s);
+    }
+    for (auto &temperature : this->temperatures_) {
+      clear(temperature.temperature_sensor_);
+    }
+  }
+}
+
+void EG4Bms::publish_online_status_() {
+  this->publish_state_(this->online_status_binary_sensor_, !this->block_stale_[0] && !this->block_stale_[1]);
 }
 
 }  // namespace eg4_bms

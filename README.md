@@ -137,7 +137,7 @@ See the example configurations in this repository:
 | `eg4_modbus_id` | **Required** | - | ID of the parent Modbus component |
 | `address` | Optional | `0x10` | Modbus address of the BMS (0x01-0xF7; EG4 uses 0x01-0x10) |
 | `update_interval` | Optional | `10s` | How often to poll the BMS |
-| `max_no_response_count` | Optional | `5` | Consecutive polls without a valid data block before the BMS is marked offline |
+| `max_no_response_count` | Optional | `5` | Consecutive polls of either data block without a valid reply before the BMS is marked offline |
 
 ### Implausible Response Rejection
 
@@ -176,7 +176,12 @@ Use DIP switches on the BMS to configure the address.
 
 ### Binary Sensors
 
-- `online_status` - BMS communication status
+- `online_status` - BMS communication status: on once both data blocks
+  (electrical/cells and capacity/SOC) have been read, off when either has gone
+  `max_no_response_count` of its own polls without a valid reply. A rejected or
+  exception reply counts as no reply. The sensors of the block that went stale
+  publish NaN (unknown) until it is read again, so old values are not taken
+  for current ones.
 - `heating` - Battery heating active
 - `charging` - Charging is permitted (no charge-blocking protection active)
 - `discharging` - Discharging is permitted (no discharge-blocking protection active)
@@ -361,6 +366,18 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 - Original Modbus controller implementation from [esphome-yambms](https://github.com/Sleeper85/esphome-yambms)
 
 ## Changelog
+
+### Unreleased
+- Track each data block on its own: the BMS goes offline when either block has
+  had no valid reply for `max_no_response_count` of its polls, and that block's
+  sensors publish NaN. Before, a valid capacity/SOC block kept a BMS online
+  while its voltage, current and cell readings went stale (and vice versa)
+  ([#9](https://github.com/RAR/esphome-eg4-bms/issues/9))
+- A Modbus exception reply no longer counts as the BMS answering
+- `online_status` stays off at boot until both blocks have been read
+- The threshold now counts each block's own polls. The two blocks alternate, so
+  a BMS that stops answering altogether goes offline after about twice as many
+  updates as before (100 s instead of 50 s at the default 10 s and 5)
 
 ### v1.1.1 (2026-11-09)
 - Build on ESPHome 2026.11, which removed `format_hex_pretty()`: the frame logs use
