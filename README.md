@@ -128,6 +128,7 @@ See the example configurations in this repository:
 | `id` | **Required** | - | ID of the Modbus component |
 | `uart_id` | **Required** | - | ID of the UART component |
 | `flow_control_pin` | Optional | - | GPIO pin for RS485 flow control (DE/RE) |
+| `turnaround_time` | Optional | `50ms` | Quiet time on the bus after a reply (or a timeout) before the next request. EG4 packs often miss a request that starts within a few ms of another pack's reply |
 
 ### `eg4_bms`
 
@@ -366,6 +367,14 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 - Original Modbus controller implementation from [esphome-yambms](https://github.com/Sleeper85/esphome-yambms)
 
 ## Changelog
+
+### Unreleased
+- Leave the bus quiet for `turnaround_time` (default 50 ms) after a reply before the
+  next request. On a bus with several packs, a request sent within a few ms of
+  another pack's reply was often not answered; v1.1.2's per-block tracking turned
+  those misses into packs going offline ([#9](https://github.com/RAR/esphome-eg4-bms/issues/9))
+- The "No response received" and "Modbus response timeout" warnings name the
+  address and register of the request
 
 ### v1.1.2 (2026-11-10)
 - Track each data block on its own: the BMS goes offline when either block has

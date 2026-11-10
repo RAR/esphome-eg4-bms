@@ -35,6 +35,7 @@ class EG4Modbus : public uart::UARTDevice, public Component {
 
   void send(uint8_t address, uint8_t function, uint16_t start_register, uint16_t num_registers);
   void set_flow_control_pin(GPIOPin *flow_control_pin) { this->flow_control_pin_ = flow_control_pin; }
+  void set_turnaround_time(uint32_t turnaround_time) { this->turnaround_time_ = turnaround_time; }
 
  protected:
   GPIOPin *flow_control_pin_{nullptr};
@@ -45,6 +46,9 @@ class EG4Modbus : public uart::UARTDevice, public Component {
   std::vector<uint8_t> rx_buffer_;
   uint32_t last_modbus_byte_{0};
   uint32_t last_send_{0};
+  uint32_t last_reply_{0};      // when the bus last went quiet after a reply or a timeout
+  uint32_t turnaround_time_{50};
+  ModbusRequest current_{};     // the request waiting for its reply, for the logs
   std::vector<EG4ModbusDevice *> devices_;
   
   std::queue<ModbusRequest> request_queue_;

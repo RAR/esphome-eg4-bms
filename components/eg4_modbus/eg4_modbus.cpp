@@ -62,16 +62,20 @@ void EG4Modbus::loop() {
   // Check for timeout on current response
   if (this->waiting_for_response_ && !this->rx_buffer_.empty() && 
       (now - this->last_modbus_byte_ > EG4_MODBUS_RESPONSE_TIMEOUT)) {
-    ESP_LOGW(TAG, "Modbus response timeout");
+    ESP_LOGW(TAG, "Modbus response timeout (address 0x%02X, register 0x%04X)", this->current_.address,
+             this->current_.start_register);
     this->rx_buffer_.clear();
     this->waiting_for_response_ = false;
+    this->last_reply_ = now;
   }
 
   // Check for complete timeout (no response at all)
   if (this->waiting_for_response_ && this->rx_buffer_.empty() && 
       (now - this->last_send_ > EG4_MODBUS_RESPONSE_TIMEOUT)) {
-    ESP_LOGW(TAG, "No response received");
+    ESP_LOGW(TAG, "No response received (address 0x%02X, register 0x%04X)", this->current_.address,
+             this->current_.start_register);
     this->waiting_for_response_ = false;
+    this->last_reply_ = now;
   }
 
   // Send next request if not waiting for a response
@@ -83,6 +87,7 @@ void EG4Modbus::loop() {
 void EG4Modbus::dump_config() {
   ESP_LOGCONFIG(TAG, "EG4 Modbus:");
   ESP_LOGCONFIG(TAG, "  Flow control pin: %s", YESNO(this->flow_control_pin_ != nullptr));
+  ESP_LOGCONFIG(TAG, "  Turnaround time: %u ms", (unsigned) this->turnaround_time_);
 }
 
 float EG4Modbus::get_setup_priority() const { return setup_priority::DATA; }
@@ -119,9 +124,15 @@ void EG4Modbus::send_next_request_() {
   if (this->request_queue_.empty() || this->waiting_for_response_) {
     return;
   }
+  // EG4 packs on a shared bus often miss a request that starts within a few ms of
+  // another pack's reply (issue #9), so leave the bus quiet for turnaround_time first.
+  if (millis() - this->last_reply_ < this->turnaround_time_) {
+    return;
+  }
 
   ModbusRequest request = this->request_queue_.front();
   this->request_queue_.pop();
+  this->current_ = request;
 
   uint8_t frame[8];
   frame[0] = request.address;
@@ -198,6 +209,7 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
     if (crc_calc != crc_recv) {
       ESP_LOGW(TAG, "Modbus CRC check failed! Calculated: 0x%04X, Received: 0x%04X", crc_calc, crc_recv);
       this->rx_buffer_.clear();
+      this->last_reply_ = now;
       return false;
     }
 
@@ -210,6 +222,7 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
 
     this->rx_buffer_.clear();
     this->waiting_for_response_ = false;  // Ready for next request
+    this->last_reply_ = millis();
     return true;
   }
 
