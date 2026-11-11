@@ -195,9 +195,14 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
   } else if ((function & 0x80) != 0) {
     // Error response
     expected_len = 5;  // addr + func + error_code + crc
+  } else {
+    // Not a reply we can frame (noise or a stray byte): drop it rather than
+    // buffering until the bus goes quiet.
+    ESP_LOGV(TAG, "Dropping frame with function 0x%02X", function);
+    return false;
   }
 
-  if (expected_len == 0 || len < expected_len) {
+  if (len < expected_len) {
     return true;  // Need more data
   }
 
@@ -220,8 +225,20 @@ bool EG4Modbus::parse_modbus_byte_(uint8_t byte) {
       device->on_modbus_data(this->rx_buffer_);
     }
 
+    // Only the reply to the request in flight ends the wait. A late reply from
+    // another pack, or for another block, must not let the next request go out
+    // over the reply still to come (issue #9).
+    const bool answers_current = address == this->current_.address &&
+                                 (function & 0x7F) == this->current_.function &&
+                                 ((function & 0x80) != 0 || raw[2] == this->current_.num_registers * 2);
+    if (this->waiting_for_response_ && !answers_current) {
+      ESP_LOGD(TAG, "Reply from address 0x%02X does not answer the request in flight (address 0x%02X, register 0x%04X)",
+               address, this->current_.address, this->current_.start_register);
+    }
+
     this->rx_buffer_.clear();
-    this->waiting_for_response_ = false;  // Ready for next request
+    if (answers_current)
+      this->waiting_for_response_ = false;  // Ready for next request
     this->last_reply_ = millis();
     return true;
   }
