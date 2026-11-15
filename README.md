@@ -368,6 +368,14 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 ## Changelog
 
+### v1.1.4 (2026-11-15)
+- Only the reply to the request in flight ends the wait before the next request. A
+  late reply from another pack, or for another register block, still reaches its
+  device but no longer lets the next request go out while the expected reply is
+  still on its way ([#9](https://github.com/RAR/esphome-eg4-bms/issues/9))
+- A frame whose function code is neither 0x03 nor an exception is dropped instead of
+  buffered until the bus goes quiet
+
 ### v1.1.3 (2026-11-10)
 - Leave the bus quiet for `turnaround_time` (default 50 ms) after a reply before the
   next request. On a bus with several packs, a request sent within a few ms of
